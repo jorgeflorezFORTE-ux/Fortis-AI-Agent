@@ -1,6 +1,25 @@
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY;
 
+// ── Refresh lock para evitar race conditions ──────────────────────────────────
+const refreshLocks = new Map();
+
+export function acquireRefreshLock(companyId) {
+  if (refreshLocks.has(companyId)) return refreshLocks.get(companyId);
+  let resolve;
+  const promise = new Promise(r => { resolve = r; });
+  promise._resolve = resolve;
+  refreshLocks.set(companyId, promise);
+  return null; // null = lock acquired (caller should refresh)
+}
+
+export function releaseRefreshLock(companyId, token) {
+  const lock = refreshLocks.get(companyId);
+  refreshLocks.delete(companyId);
+  if (lock?._resolve) lock._resolve(token);
+}
+
+// ── Supabase helpers ──────────────────────────────────────────────────────────
 async function sbFetch(path, options = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
     ...options,

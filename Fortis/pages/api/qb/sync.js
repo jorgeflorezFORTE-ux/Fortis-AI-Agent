@@ -15,7 +15,7 @@ import {
   refreshAccessToken,
   extractPLData,
 } from '../../../lib/quickbooks';
-import { getToken, saveToken, isTokenExpired } from '../../../lib/tokenStore';
+import { getToken, saveToken, isTokenExpired, acquireRefreshLock, releaseRefreshLock } from '../../../lib/tokenStore';
 import { COMPANIES } from '../../../lib/companies';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
@@ -24,11 +24,22 @@ async function getValidToken(companyId) {
   if (!token) return null;
 
   if (isTokenExpired(token)) {
+    // Check if another request is already refreshing this token
+    const existing = acquireRefreshLock(companyId);
+    if (existing) {
+      // Wait for the other refresh to complete
+      token = await existing;
+      if (token) return token;
+      return await getToken(companyId);
+    }
+
     try {
       const newToken = await refreshAccessToken(token.refresh_token);
       await saveToken(companyId, { ...newToken, realmId: token.realmId });
       token = await getToken(companyId);
+      releaseRefreshLock(companyId, token);
     } catch (err) {
+      releaseRefreshLock(companyId, null);
       console.error(`Error refreshing token for ${companyId}:`, err.message);
       return null;
     }
