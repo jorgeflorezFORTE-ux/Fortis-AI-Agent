@@ -1,0 +1,21 @@
+{
+  "name": "Fortis",
+  "short_name": "Fortis",
+  "description": "Asesor financiero AI — Jorge & Paola",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["finance", "business"],
+  "lang": "es",
+  "shortcuts": [
+    { "name": "Dashboard", "url": "/?tab=dashboard", "description": "Ver dashboard financiero" },
+    { "name": "Asesor AI", "url": "/?tab=asesor", "description": "Hablar con el asesor" },
+    { "name": "Meta $20k", "url": "/?tab=meta", "description": "Progreso hacia $20k pasivos" }
+  ]
+}
