@@ -313,8 +313,8 @@ export default function Home() {
     setSyncing(true);
     try {
       const [year, month] = selectedMonth.split('-');
-      const startDate = format(startOfMonth(new Date(year, month - 1)), 'yyyy-MM-dd');
-      const endDate = format(endOfMonth(new Date(year, month - 1)), 'yyyy-MM-dd');
+      const startDate = format(startOfMonth(new Date(parseInt(year), parseInt(month) - 1)), 'yyyy-MM-dd');
+      const endDate = format(endOfMonth(new Date(parseInt(year), parseInt(month) - 1)), 'yyyy-MM-dd');
 
       const r = await fetch('/api/qb/sync', {
         method: 'POST',
