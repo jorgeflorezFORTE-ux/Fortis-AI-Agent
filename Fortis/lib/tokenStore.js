@@ -1,51 +1,48 @@
-/**
- * lib/tokenStore.js
- * Almacenamiento de tokens OAuth.
- * En desarrollo: archivo JSON local.
- * En producción (Vercel): usar Vercel KV (descomentar sección de abajo).
- */
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY;
 
-import fs from 'fs';
-import path from 'path';
-
-const TOKEN_FILE = path.join(process.cwd(), '.tokens.json');
-
-function readTokens() {
-  try {
-    if (!fs.existsSync(TOKEN_FILE)) return {};
-    return JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
-  } catch {
-    return {};
-  }
+async function sbFetch(path, options = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      ...(options.headers || {}),
+    },
+  });
+  if (res.status === 204 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
+  return res.json();
 }
 
-function writeTokens(tokens) {
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2));
+export async function saveToken(companyId, tokenData) {
+  await sbFetch('/tokens', {
+    method: 'POST',
+    headers: { 'Prefer': 'resolution=merge-duplicates' },
+    body: JSON.stringify({
+      id: companyId,
+      data: { ...tokenData, savedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString() },
+      updated_at: new Date().toISOString(),
+    }),
+  });
 }
 
-export function saveToken(companyId, tokenData) {
-  const tokens = readTokens();
-  tokens[companyId] = {
-    ...tokenData,
-    savedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
-  };
-  writeTokens(tokens);
+export async function getToken(companyId) {
+  const rows = await sbFetch(`/tokens?id=eq.${companyId}&select=*`);
+  if (!rows || rows.length === 0) return null;
+  return rows[0].data;
 }
 
-export function getToken(companyId) {
-  const tokens = readTokens();
-  return tokens[companyId] || null;
+export async function getAllTokens() {
+  const rows = await sbFetch('/tokens?select=*') || [];
+  const result = {};
+  rows.forEach(r => { result[r.id] = r.data; });
+  return result;
 }
 
-export function getAllTokens() {
-  return readTokens();
-}
-
-export function deleteToken(companyId) {
-  const tokens = readTokens();
-  delete tokens[companyId];
-  writeTokens(tokens);
+export async function deleteToken(companyId) {
+  await sbFetch(`/tokens?id=eq.${companyId}`, { method: 'DELETE' });
 }
 
 export function isTokenExpired(tokenData) {
@@ -53,36 +50,11 @@ export function isTokenExpired(tokenData) {
   return new Date(tokenData.expiresAt) < new Date(Date.now() + 5 * 60 * 1000);
 }
 
-export function getConnectionStatus() {
-  const tokens = readTokens();
+export async function getConnectionStatus() {
+  const tokens = await getAllTokens();
   const status = {};
   Object.keys(tokens).forEach(id => {
-    status[id] = {
-      connected: true,
-      expired: isTokenExpired(tokens[id]),
-      savedAt: tokens[id].savedAt,
-      realmId: tokens[id].realmId,
-    };
+    status[id] = { connected: true, expired: isTokenExpired(tokens[id]), savedAt: tokens[id].savedAt, realmId: tokens[id].realmId };
   });
   return status;
 }
-
-/* ── PRODUCCIÓN (Vercel KV) ──────────────────────────────────────────────────
-Para Vercel, instala: npm install @vercel/kv
-Luego reemplaza las funciones de arriba con:
-
-import { kv } from '@vercel/kv';
-
-export async function saveToken(companyId, tokenData) {
-  await kv.set(`token:${companyId}`, JSON.stringify({
-    ...tokenData,
-    savedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
-  }));
-}
-
-export async function getToken(companyId) {
-  const data = await kv.get(`token:${companyId}`);
-  return data ? JSON.parse(data) : null;
-}
-────────────────────────────────────────────────────────────────────────────── */
