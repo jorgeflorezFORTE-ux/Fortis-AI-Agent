@@ -20,14 +20,14 @@ import { COMPANIES } from '../../../lib/companies';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 async function getValidToken(companyId) {
-  let token = getToken(companyId);
+  let token = await getToken(companyId);
   if (!token) return null;
 
   if (isTokenExpired(token)) {
     try {
       const newToken = await refreshAccessToken(token.refresh_token);
-      saveToken(companyId, { ...newToken, realmId: token.realmId });
-      token = getToken(companyId);
+      await saveToken(companyId, { ...newToken, realmId: token.realmId });
+      token = await getToken(companyId);
     } catch (err) {
       console.error(`Error refreshing token for ${companyId}:`, err.message);
       return null;
