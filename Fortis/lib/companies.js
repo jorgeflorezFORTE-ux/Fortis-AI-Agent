@@ -67,17 +67,6 @@ export const COMPANIES = [
     priority: 4,
   },
   {
-    id: 'jp-homes',
-    name: 'JP Legacy Homes LLC',
-    alias: 'JP Homes',
-    type: 'Real Estate',
-    color: '#7a3ad4',
-    envKey: 'QB_REALM_JP_HOMES',
-    description: 'Homes.',
-    active: true,
-    priority: 4,
-  },
-  {
     id: 'jorge-llc',
     name: 'Jorge Manuel Florez Gutierrez LLC',
     alias: 'Jorge LLC',
@@ -85,9 +74,9 @@ export const COMPANIES = [
     color: '#8a9ab0',
     regNumber: 'P23000008508',
     envKey: 'QB_REALM_JORGE_LLC',
-    description: 'Entidad personal de Jorge. Actualmente no activa.',
-    active: false,
-    priority: 6,
+    description: 'Entidad personal de Jorge.',
+    active: true,
+    priority: 5,
   },
 ];
 

@@ -379,12 +379,12 @@ export default function Home() {
   const connectedCount = companies.filter(c => c.connected).length;
 
   const [selMonth, selYear] = selectedMonth.split('-');
-  const monthLabel = format(new Date(selYear, selMonth - 1, 1), 'MMMM yyyy', { locale: es });
+  const monthLabel = format(new Date(parseInt(selYear), parseInt(selMonth) - 1, 1), 'MMMM yyyy', { locale: es });
 
   return (
     <>
       <Head>
-        <title>JP Legacy Finance AI</title>
+        <title>Fortis — Asesor Financiero AI</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <style>{`
           * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -399,8 +399,8 @@ export default function Home() {
       <div style={{ background: '#111827', color: '#fff', padding: '0 24px' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', height: 56, gap: 24, flexWrap: 'wrap' }}>
           <div>
-            <span style={{ fontWeight: 700, fontSize: 16 }}>JP Legacy</span>
-            <span style={{ color: '#9ca3af', fontSize: 14, marginLeft: 8 }}>Finance AI</span>
+            <span style={{ fontWeight: 700, fontSize: 16, color: '#fff' }}>Fortis</span>
+            <span style={{ color: '#9ca3af', fontSize: 13, marginLeft: 8 }}>Asesor Financiero AI</span>
           </div>
           <div style={{ display: 'flex', gap: 2, flex: 1, flexWrap: 'wrap' }}>
             {['dashboard', 'empresas', 'personal', 'reportes', 'asesor'].map(v => (

@@ -1,7 +1,7 @@
-# JP Legacy Finance AI 🏠📊
+# Fortis — Asesor Financiero AI 🏠📊
 
-Asesor financiero con IA para el portfolio de empresas de Jorge y Paola.  
-**Reemplaza al bookkeeper de $200/mes.**
+Tu sistema financiero personal y empresarial, impulsado por Claude AI.  
+**Reemplaza al bookkeeper de $200/mes. Meta: $20,000/mes de ingreso pasivo.**
 
 ---
 

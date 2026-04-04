@@ -6,7 +6,7 @@
 export function buildReportEmail({ report, type, month, appUrl }) {
   const deepLink = `${appUrl}/?tab=dashboard`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(appUrl)}&bgcolor=f9fafb&color=111827&margin=2`;
-  const title = type === 'weekly' ? `Reporte Semanal — JP Legacy` : `Cierre Mensual — ${month}`;
+  const title = type === 'weekly' ? `Reporte Semanal — Fortis` : `Cierre Mensual — ${month}`;
 
   const alertsHtml = (report.alertas || []).map(a => `
     <tr>
@@ -33,7 +33,7 @@ export function buildReportEmail({ report, type, month, appUrl }) {
     <!-- Header -->
     <div style="background:#111827;border-radius:12px 12px 0 0;padding:20px 24px;display:flex;align-items:center;justify-content:space-between">
       <div>
-        <div style="color:#fff;font-size:18px;font-weight:600">JP Legacy Finance</div>
+        <div style="color:#fff;font-size:18px;font-weight:600">Fortis</div>
         <div style="color:#9ca3af;font-size:13px;margin-top:2px">${title}</div>
       </div>
       <div style="color:#d4913a;font-size:12px;background:rgba(212,145,58,.15);padding:4px 10px;border-radius:8px">
@@ -112,7 +112,7 @@ export function buildReportEmail({ report, type, month, appUrl }) {
 
     <!-- Footer -->
     <div style="text-align:center;padding:16px;font-size:11px;color:#9ca3af">
-      JP Legacy Finance AI · Generado automáticamente · <a href="${appUrl}/api/unsubscribe" style="color:#9ca3af">Desuscribirse</a>
+      Fortis · Asesor Financiero AI · Generado automáticamente · <a href="${appUrl}/api/unsubscribe" style="color:#9ca3af">Desuscribirse</a>
     </div>
   </div>
 </body>
