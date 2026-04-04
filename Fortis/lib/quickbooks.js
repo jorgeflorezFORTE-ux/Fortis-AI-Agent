@@ -200,30 +200,19 @@ export async function createJournalEntry(accessToken, realmId, { date, memo, lin
 
 export function extractPLData(plReport) {
   if (!plReport?.Rows?.Row) return { income: 0, expenses: 0, net: 0 };
-
-  let income = 0;
-  let expenses = 0;
-
-  const extractAmount = (rows) => {
-    let total = 0;
-    rows?.forEach(row => {
-      if (row.type === 'Data' && row.ColData) {
-        const amt = parseFloat(row.ColData[1]?.value || 0);
-        if (!isNaN(amt)) total += amt;
-      }
-      if (row.Rows?.Row) total += extractAmount(row.Rows.Row);
-    });
-    return total;
-  };
-
+  let income = 0, expenses = 0, net = 0;
   plReport.Rows.Row.forEach(section => {
-    const name = section.Summary?.ColData?.[0]?.value?.toLowerCase() || '';
-    const total = parseFloat(section.Summary?.ColData?.[1]?.value || 0);
-    if (name.includes('income') || name.includes('revenue')) income = total;
-    if (name.includes('expense') || name.includes('cost')) expenses = Math.abs(total);
+    const group = section.group || '';
+    const name = (section.Summary?.ColData?.[0]?.value || '').toLowerCase();
+    const raw = parseFloat(section.Summary?.ColData?.[1]?.value || 0);
+    const val = isNaN(raw) ? 0 : raw;
+    if (group === 'Income' || group === 'GrossProfit') income = Math.abs(val);
+    else if (group === 'Expenses' || group === 'COGS') expenses = Math.abs(val);
+    else if (group === 'NetIncome' || group === 'NetOperatingIncome') net = val;
+    else if (name.includes('total for income') || name === 'income') income = Math.abs(val);
+    else if (name.includes('total for expense') || name === 'expenses') expenses = Math.abs(val);
   });
-
-  return { income, expenses, net: income - expenses };
+  return { income, expenses, net: net !== 0 ? net : income - expenses };
 }
 
 export function formatCurrency(amount) {
