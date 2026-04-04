@@ -1,13 +1,8 @@
-/**
- * pages/api/qb/status.js
- * Retorna el estado de conexión de todas las empresas
- */
-
 import { getConnectionStatus } from '../../../lib/tokenStore';
 import { COMPANIES } from '../../../lib/companies';
 
-export default function handler(req, res) {
-  const tokenStatus = getConnectionStatus();
+export default async function handler(req, res) {
+  const tokenStatus = await getConnectionStatus();
 
   const companies = COMPANIES.map(c => ({
     id: c.id,
