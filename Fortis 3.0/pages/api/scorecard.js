@@ -1,6 +1,6 @@
-const { generateScorecard } = require('../../../lib/claude');
-const { getDashboardData, getGlobalSummary, getFreedomSummary } = require('../../../lib/db');
-const { reconcileAll } = require('../../../lib/reconciliation');
+const { generateScorecard } = require('../../lib/claude');
+const { getDashboardData, getGlobalSummary, getFreedomSummary } = require('../../lib/db');
+const { reconcileAll } = require('../../lib/reconciliation');
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
