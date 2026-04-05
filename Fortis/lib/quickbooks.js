@@ -1,224 +1,226 @@
 /**
  * lib/quickbooks.js
- * Maneja toda la comunicación con la API de QuickBooks Online
+ * Cliente de QuickBooks: OAuth 2.0 + lectura de transacciones
  */
 
-import axios from 'axios';
+const OAuthClient = require('intuit-oauth');
+const { saveToken, getToken } = require('./db');
+const { COMPANIES } = require('./companies');
 
-const QB_BASE_URL = 'https://quickbooks.api.intuit.com/v3/company';
-const QB_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
-const QB_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2';
-const MINOR_VERSION = '70';
+// ── OAuth Client ──────────────────────────────────────────────────────────────
 
-// ─── OAuth ────────────────────────────────────────────────────────────────────
-
-export function buildAuthUrl(state = 'jp-legacy') {
-  const params = new URLSearchParams({
-    client_id: process.env.QB_CLIENT_ID,
-    scope: 'com.intuit.quickbooks.accounting',
-    redirect_uri: process.env.QB_REDIRECT_URI,
-    response_type: 'code',
-    state,
+function createOAuthClient() {
+  return new OAuthClient({
+    clientId: process.env.QB_CLIENT_ID,
+    clientSecret: process.env.QB_CLIENT_SECRET,
+    environment: process.env.QB_ENVIRONMENT || 'sandbox',
+    redirectUri: process.env.QB_REDIRECT_URI || `${process.env.APP_URL}/api/qb/callback`,
   });
-  return `${QB_AUTH_URL}?${params.toString()}`;
 }
 
-export async function exchangeCodeForToken(code) {
-  const credentials = Buffer.from(
-    `${process.env.QB_CLIENT_ID}:${process.env.QB_CLIENT_SECRET}`
-  ).toString('base64');
+function getAuthUri(companyId) {
+  const oauthClient = createOAuthClient();
+  return oauthClient.authorizeUri({
+    scope: [OAuthClient.scopes.Accounting, OAuthClient.scopes.OpenId],
+    state: companyId, // Para saber qué empresa se está conectando
+  });
+}
 
-  const { data } = await axios.post(
-    QB_TOKEN_URL,
-    new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: process.env.QB_REDIRECT_URI,
-    }).toString(),
-    {
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json',
-      },
+async function handleCallback(url) {
+  const oauthClient = createOAuthClient();
+  const authResponse = await oauthClient.createToken(url);
+  return authResponse.getJson();
+}
+
+async function getValidToken(companyId) {
+  const stored = getToken(companyId);
+  if (!stored) return null;
+
+  const oauthClient = createOAuthClient();
+  oauthClient.setToken({
+    access_token: stored.access_token,
+    refresh_token: stored.refresh_token,
+    token_type: stored.token_type,
+    expires_in: Math.max(0, (stored.expires_at - Date.now()) / 1000),
+  });
+
+  // Refresh si está por expirar (menos de 5 min)
+  if (stored.expires_at < Date.now() + 300000) {
+    try {
+      const refreshResponse = await oauthClient.refresh();
+      const newToken = refreshResponse.getJson();
+      saveToken(companyId, {
+        realmId: stored.realm_id,
+        access_token: newToken.access_token,
+        refresh_token: newToken.refresh_token,
+        token_type: newToken.token_type,
+        expires_at: Date.now() + (newToken.expires_in * 1000),
+        x_refresh_token_expires_in: newToken.x_refresh_token_expires_in,
+      });
+      return { accessToken: newToken.access_token, realmId: stored.realm_id };
+    } catch (err) {
+      console.error(`Token refresh failed for ${companyId}:`, err.message);
+      return null;
     }
-  );
+  }
 
-  return data; // { access_token, refresh_token, expires_in, token_type, x_refresh_token_expires_in }
+  return { accessToken: stored.access_token, realmId: stored.realm_id };
 }
 
-export async function refreshAccessToken(refreshToken) {
-  const credentials = Buffer.from(
-    `${process.env.QB_CLIENT_ID}:${process.env.QB_CLIENT_SECRET}`
-  ).toString('base64');
+// ── API Calls ─────────────────────────────────────────────────────────────────
 
-  const { data } = await axios.post(
-    QB_TOKEN_URL,
-    new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-    }).toString(),
-    {
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json',
-      },
-    }
-  );
+const QB_BASE = {
+  sandbox: 'https://sandbox-quickbooks.api.intuit.com',
+  production: 'https://quickbooks.api.intuit.com',
+};
 
-  return data;
-}
+async function qbApiCall(companyId, endpoint) {
+  const token = await getValidToken(companyId);
+  if (!token) throw new Error(`No valid token for ${companyId}`);
 
-// ─── QuickBooks API helper ────────────────────────────────────────────────────
+  const baseUrl = QB_BASE[process.env.QB_ENVIRONMENT || 'sandbox'];
+  const url = `${baseUrl}/v3/company/${token.realmId}/${endpoint}`;
 
-function qbClient(accessToken) {
-  return axios.create({
-    baseURL: QB_BASE_URL,
+  const response = await fetch(url, {
     headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/json',
+      'Authorization': `Bearer ${token.accessToken}`,
+      'Accept': 'application/json',
       'Content-Type': 'application/json',
     },
   });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`QB API error ${response.status}: ${body}`);
+  }
+
+  return response.json();
 }
 
-async function runQuery(accessToken, realmId, query) {
-  const client = qbClient(accessToken);
-  const { data } = await client.get(
-    `/${realmId}/query?query=${encodeURIComponent(query)}&minorversion=${MINOR_VERSION}`
-  );
-  return data.QueryResponse || {};
+async function queryQB(companyId, query) {
+  const encoded = encodeURIComponent(query);
+  return qbApiCall(companyId, `query?query=${encoded}`);
 }
 
-// ─── Transacciones ───────────────────────────────────────────────────────────
+// ── Fetch Transactions ────────────────────────────────────────────────────────
 
-export async function getPurchases(accessToken, realmId, startDate, endDate) {
-  const q = `SELECT * FROM Purchase WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC MAXRESULTS 500`;
-  const res = await runQuery(accessToken, realmId, q);
-  return res.Purchase || [];
+async function fetchPurchases(companyId, startDate, endDate) {
+  const query = `SELECT * FROM Purchase WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC MAXRESULTS 500`;
+  const result = await queryQB(companyId, query);
+  return (result.QueryResponse?.Purchase || []).map(p => ({
+    company_id: companyId,
+    qb_id: `purchase-${p.Id}`,
+    type: 'expense',
+    amount: Math.abs(p.TotalAmt || 0),
+    date: p.TxnDate,
+    category: p.Line?.[0]?.AccountBasedExpenseLineDetail?.AccountRef?.name || p.AccountRef?.name || 'Sin categoría',
+    description: p.PrivateNote || p.Line?.[0]?.Description || '',
+    vendor: p.EntityRef?.name || '',
+    account: p.AccountRef?.name || '',
+    payment_method: p.PaymentType || 'Otro',
+    reference: `QBP-${p.Id}`,
+    memo: p.PrivateNote || '',
+    raw_data: p,
+  }));
 }
 
-export async function getInvoices(accessToken, realmId, startDate, endDate) {
-  const q = `SELECT * FROM Invoice WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC MAXRESULTS 500`;
-  const res = await runQuery(accessToken, realmId, q);
-  return res.Invoice || [];
+async function fetchBills(companyId, startDate, endDate) {
+  const query = `SELECT * FROM Bill WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC MAXRESULTS 500`;
+  const result = await queryQB(companyId, query);
+  return (result.QueryResponse?.Bill || []).map(b => ({
+    company_id: companyId,
+    qb_id: `bill-${b.Id}`,
+    type: 'expense',
+    amount: Math.abs(b.TotalAmt || 0),
+    date: b.TxnDate,
+    category: b.Line?.[0]?.AccountBasedExpenseLineDetail?.AccountRef?.name || 'Sin categoría',
+    description: b.Line?.[0]?.Description || '',
+    vendor: b.VendorRef?.name || '',
+    account: b.APAccountRef?.name || '',
+    payment_method: 'Bill',
+    reference: `QBB-${b.Id}`,
+    memo: b.PrivateNote || '',
+    raw_data: b,
+  }));
 }
 
-export async function getSalesReceipts(accessToken, realmId, startDate, endDate) {
-  const q = `SELECT * FROM SalesReceipt WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC MAXRESULTS 200`;
-  const res = await runQuery(accessToken, realmId, q);
-  return res.SalesReceipt || [];
+async function fetchInvoices(companyId, startDate, endDate) {
+  const query = `SELECT * FROM Invoice WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC MAXRESULTS 500`;
+  const result = await queryQB(companyId, query);
+  return (result.QueryResponse?.Invoice || []).map(inv => ({
+    company_id: companyId,
+    qb_id: `invoice-${inv.Id}`,
+    type: 'income',
+    amount: Math.abs(inv.TotalAmt || 0),
+    date: inv.TxnDate,
+    category: inv.Line?.[0]?.SalesItemLineDetail?.ItemRef?.name || 'Servicios',
+    description: inv.Line?.[0]?.Description || '',
+    vendor: inv.CustomerRef?.name || '',
+    account: '',
+    payment_method: 'Invoice',
+    reference: `QBI-${inv.Id}`,
+    memo: inv.PrivateNote || '',
+    raw_data: inv,
+  }));
 }
 
-export async function getDeposits(accessToken, realmId, startDate, endDate) {
-  const q = `SELECT * FROM Deposit WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC MAXRESULTS 200`;
-  const res = await runQuery(accessToken, realmId, q);
-  return res.Deposit || [];
+async function fetchPayments(companyId, startDate, endDate) {
+  const query = `SELECT * FROM Payment WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' ORDERBY TxnDate DESC MAXRESULTS 500`;
+  const result = await queryQB(companyId, query);
+  return (result.QueryResponse?.Payment || []).map(p => ({
+    company_id: companyId,
+    qb_id: `payment-${p.Id}`,
+    type: 'income',
+    amount: Math.abs(p.TotalAmt || 0),
+    date: p.TxnDate,
+    category: 'Cobros recibidos',
+    description: `Pago de ${p.CustomerRef?.name || 'cliente'}`,
+    vendor: p.CustomerRef?.name || '',
+    account: p.DepositToAccountRef?.name || '',
+    payment_method: p.PaymentMethodRef?.name || 'Otro',
+    reference: `QBR-${p.Id}`,
+    raw_data: p,
+  }));
 }
 
-export async function getUncategorizedTransactions(accessToken, realmId) {
-  const q = `SELECT * FROM Purchase WHERE AccountRef = '1' MAXRESULTS 200`;
-  const res = await runQuery(accessToken, realmId, q);
-  return res.Purchase || [];
+async function fetchProfitAndLoss(companyId, startDate, endDate) {
+  return qbApiCall(companyId, `reports/ProfitAndLoss?start_date=${startDate}&end_date=${endDate}&summarize_column_by=Month`);
 }
 
-// ─── Reportes ────────────────────────────────────────────────────────────────
+async function fetchAllTransactions(companyId, startDate, endDate) {
+  const [purchases, bills, invoices, payments] = await Promise.allSettled([
+    fetchPurchases(companyId, startDate, endDate),
+    fetchBills(companyId, startDate, endDate),
+    fetchInvoices(companyId, startDate, endDate),
+    fetchPayments(companyId, startDate, endDate),
+  ]);
 
-export async function getProfitAndLoss(accessToken, realmId, startDate, endDate) {
-  const client = qbClient(accessToken);
-  const { data } = await client.get(
-    `/${realmId}/reports/ProfitAndLoss?start_date=${startDate}&end_date=${endDate}&minorversion=${MINOR_VERSION}`
-  );
-  return data;
+  const all = [];
+  if (purchases.status === 'fulfilled') all.push(...purchases.value);
+  if (bills.status === 'fulfilled') all.push(...bills.value);
+  if (invoices.status === 'fulfilled') all.push(...invoices.value);
+  if (payments.status === 'fulfilled') all.push(...payments.value);
+
+  return all;
 }
 
-export async function getBalanceSheet(accessToken, realmId, asOfDate) {
-  const client = qbClient(accessToken);
-  const { data } = await client.get(
-    `/${realmId}/reports/BalanceSheet?date=${asOfDate}&minorversion=${MINOR_VERSION}`
-  );
-  return data;
-}
+// ── Connection Status ─────────────────────────────────────────────────────────
 
-export async function getCashFlow(accessToken, realmId, startDate, endDate) {
-  const client = qbClient(accessToken);
-  const { data } = await client.get(
-    `/${realmId}/reports/CashFlow?start_date=${startDate}&end_date=${endDate}&minorversion=${MINOR_VERSION}`
-  );
-  return data;
-}
-
-// ─── Cuentas y clientes ───────────────────────────────────────────────────────
-
-export async function getChartOfAccounts(accessToken, realmId) {
-  const q = `SELECT * FROM Account WHERE Active = true MAXRESULTS 200`;
-  const res = await runQuery(accessToken, realmId, q);
-  return res.Account || [];
-}
-
-export async function getVendors(accessToken, realmId) {
-  const q = `SELECT * FROM Vendor WHERE Active = true MAXRESULTS 200`;
-  const res = await runQuery(accessToken, realmId, q);
-  return res.Vendor || [];
-}
-
-export async function getCustomers(accessToken, realmId) {
-  const q = `SELECT * FROM Customer WHERE Active = true MAXRESULTS 200`;
-  const res = await runQuery(accessToken, realmId, q);
-  return res.Customer || [];
-}
-
-// ─── Journal Entries ──────────────────────────────────────────────────────────
-
-export async function createJournalEntry(accessToken, realmId, { date, memo, lines }) {
-  const client = qbClient(accessToken);
-
-  const journalEntry = {
-    TxnDate: date,
-    PrivateNote: memo,
-    Line: lines.map(line => ({
-      Description: line.description,
-      Amount: Math.abs(line.amount),
-      DetailType: 'JournalEntryLineDetail',
-      JournalEntryLineDetail: {
-        PostingType: line.type === 'debit' ? 'Debit' : 'Credit',
-        AccountRef: { name: line.account },
-      },
-    })),
-  };
-
-  const { data } = await client.post(
-    `/${realmId}/journalentry?minorversion=${MINOR_VERSION}`,
-    journalEntry
-  );
-
-  return data.JournalEntry;
-}
-
-// ─── Utilidades ───────────────────────────────────────────────────────────────
-
-export function extractPLData(plReport) {
-  if (!plReport?.Rows?.Row) return { income: 0, expenses: 0, net: 0 };
-  let income = 0, expenses = 0, net = 0;
-  plReport.Rows.Row.forEach(section => {
-    const group = section.group || '';
-    const name = (section.Summary?.ColData?.[0]?.value || '').toLowerCase();
-    const raw = parseFloat(section.Summary?.ColData?.[1]?.value || 0);
-    const val = isNaN(raw) ? 0 : raw;
-    if (group === 'Income' || group === 'GrossProfit') income = Math.abs(val);
-    else if (group === 'Expenses' || group === 'COGS') expenses = Math.abs(val);
-    else if (group === 'NetIncome' || group === 'NetOperatingIncome') net = val;
-    else if (name.includes('total for income') || name === 'income') income = Math.abs(val);
-    else if (name.includes('total for expense') || name === 'expenses') expenses = Math.abs(val);
+function getConnectionStatus() {
+  return COMPANIES.map(co => {
+    const token = getToken(co.id);
+    return {
+      companyId: co.id,
+      companyName: co.shortName || co.name,
+      connected: !!token,
+      realmId: token?.realm_id || null,
+      tokenExpired: token ? token.expires_at < Date.now() : true,
+      lastUpdated: token?.updated_at || null,
+    };
   });
-  return { income, expenses, net: net !== 0 ? net : income - expenses };
 }
 
-export function formatCurrency(amount) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount || 0);
-}
+module.exports = {
+  createOAuthClient, getAuthUri, handleCallback, getValidToken,
+  fetchAllTransactions, fetchProfitAndLoss, getConnectionStatus,
+};

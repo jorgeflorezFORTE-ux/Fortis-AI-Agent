@@ -1,4 +1,8 @@
-.tokens.json
-.env.local
 node_modules/
 .next/
+.env.local
+data/finance.db
+data/finance.db-wal
+data/finance.db-shm
+*.log
+.DS_Store

@@ -1,171 +1,219 @@
-# Fortis — Asesor Financiero AI 🏠📊
+# Fortis 2.0 — Asesor Financiero AI 🏠📊
 
-Tu sistema financiero personal y empresarial, impulsado por Claude AI.  
-**Reemplaza al bookkeeper de $200/mes. Meta: $20,000/mes de ingreso pasivo.**
+Dashboard financiero con IA para el portfolio de empresas de Jorge y Paola.
+Conectado a QuickBooks, con análisis automático de gastos y recomendaciones.
 
 ---
 
 ## ¿Qué hace?
 
-- Se conecta automáticamente a QuickBooks de cada empresa
-- Jala transacciones semanalmente
-- Claude AI categoriza gastos, detecta errores y genera entradas contables
-- Analiza gastos personales de Jorge y Paola (CSV de banco/tarjetas)
-- Genera reportes semanales y cierres mensuales listos para el contador
+- **Dashboard consolidado** — Ve ingresos vs gastos de todas las empresas o una por una
+- **Drill-down de gastos** — Clic en cualquier categoría para ver cada transacción individual
+- **Sincronización con QuickBooks** — Jala transacciones automáticamente
+- **Asesor AI (Claude)** — Analiza gastos, detecta problemas y dice exactamente qué recortar
+- **Chat financiero** — Pregunta lo que necesites sobre tus finanzas en lenguaje natural
 
 ---
 
-## Configuración (una sola vez, ~30 minutos)
+## Empresas configuradas
 
-### Paso 1 — Instalar
+| Empresa | Tipo | EIN |
+|---------|------|-----|
+| Real Legacy LLC | Real Estate (principal) | 88-3202623 |
+| JP Legacy Media | Marketing / Referidos | — |
+| Paola Diaz Lozada PA | Comisiones | 92-2296944 |
+| VAU Nutrition LLC | Nutrition (por iniciar) | — |
+| Reborn Houses LLC | Lote Comercial | — |
+| Jorge Florez LLC | Personal (inactiva) | — |
+
+---
+
+## Instalación (30 minutos, una sola vez)
+
+### Paso 1 — Requisitos previos
+
+Necesitas tener instalado:
+- **Node.js 18+** → https://nodejs.org
+- **Git** (opcional) → https://git-scm.com
+
+### Paso 2 — Instalar el proyecto
 
 ```bash
-git clone <este-repo>
-cd jp-legacy-finance
+# Descomprimir el archivo descargado
+unzip fortis-2.zip
+cd fortis-2
+
+# Instalar dependencias
 npm install
+
+# Crear archivo de configuración
 cp .env.example .env.local
 ```
 
-### Paso 2 — Anthropic API Key
+### Paso 3 — Obtener API Key de Claude
 
 1. Ve a https://console.anthropic.com
-2. API Keys → Create Key
-3. Copia la key en `.env.local`:
-   ```
-   ANTHROPIC_API_KEY=sk-ant-...
-   ```
+2. Crea una cuenta o inicia sesión
+3. Ve a **API Keys** → **Create Key**
+4. Copia la key y pégala en `.env.local`:
 
-### Paso 3 — Crear app en QuickBooks Developer (gratis)
+```
+ANTHROPIC_API_KEY=sk-ant-api03-tu-key-aqui...
+```
+
+### Paso 4 — Crear app en QuickBooks Developer (gratis)
 
 1. Ve a https://developer.intuit.com
 2. Inicia sesión con tu cuenta de QuickBooks
 3. Clic en **"Create an app"**
 4. Selecciona **"QuickBooks Online and Payments"**
-5. Nombre: `JP Legacy Finance`
-6. En **"Redirect URIs"** agrega:
+5. Nombre: `Fortis 2.0`
+6. En **Keys & OAuth**:
+   - Copia el **Client ID** y **Client Secret**
+7. En **Redirect URIs** agrega:
    - Desarrollo: `http://localhost:3000/api/qb/callback`
    - Producción: `https://tu-app.vercel.app/api/qb/callback`
-7. Copia **Client ID** y **Client Secret** en `.env.local`
 
-### Paso 4 — Realm IDs de cada empresa
+8. Pega las credenciales en `.env.local`:
 
-El Realm ID está en QuickBooks de cada empresa:
-- Abre QuickBooks de cada empresa
-- Ve a ⚙️ Configuración → Sobre QuickBooks
-- Busca el número de "Company ID" (ejemplo: `9341454972`)
-- Cópialo en `.env.local` para cada empresa
-
-```env
-QB_REALM_REAL_LEGACY=9341454972
-QB_REALM_JP_MEDIA=8834521903
-QB_REALM_VAU_NUTRITION=
-QB_REALM_PAOLA_PA=7712348901
-QB_REALM_REBORN_HOUSES=
-QB_REALM_JP_HOMES=
-QB_REALM_JORGE_LLC=
+```
+QB_CLIENT_ID=ABxxxxxxxxxxxxxxxxxxxxxxxx
+QB_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+QB_REDIRECT_URI=http://localhost:3000/api/qb/callback
+QB_ENVIRONMENT=production
 ```
 
-### Paso 5 — Correr en desarrollo
+### Paso 5 — Arrancar la aplicación
 
 ```bash
 npm run dev
 ```
 
-Abre http://localhost:3000
+Abre http://localhost:3000 en tu navegador.
 
 ### Paso 6 — Conectar cada empresa a QuickBooks
 
-1. En el dashboard, ve a la pestaña **"Empresas"**
-2. Haz clic en **"Conectar QB"** para cada empresa
-3. Se abre una ventana de QuickBooks — autoriza el acceso
-4. La empresa queda conectada (badge verde ✓)
+Para cada empresa, abre esta URL en tu navegador:
 
----
+```
+http://localhost:3000/api/qb/auth?company=real-legacy
+http://localhost:3000/api/qb/auth?company=jp-media
+http://localhost:3000/api/qb/auth?company=paola-pa
+```
 
-## Deploy en Vercel (gratis, producción)
+Esto te llevará a QuickBooks para autorizar cada empresa.
+Una vez autorizada, el token se guarda automáticamente en la base de datos local.
+
+### Paso 7 — Sincronizar transacciones
+
+Haz clic en **"⟳ Sync QuickBooks"** en el sidebar, o usa la API:
 
 ```bash
-npm install -g vercel
-vercel
+curl -X POST http://localhost:3000/api/qb/sync -H "Content-Type: application/json" -d '{"year": 2025}'
 ```
-
-Sigue las instrucciones. Después en el dashboard de Vercel:
-1. Ve a tu proyecto → Settings → Environment Variables
-2. Agrega todas las variables de `.env.local`
-3. Redeploy
 
 ---
 
-## Uso diario
+## Despliegue en producción (Vercel)
 
-### Sincronización semanal (2 minutos)
-1. Abre la app
-2. Clic en **"⟳ Sincronizar QB"**
-3. Clic en **"📊 Reporte semanal"**
-4. Claude te da el análisis completo
+### Opción A — Vercel (recomendado, gratis)
 
-### Cierre mensual (5 minutos)
-1. Selecciona el mes en el dropdown del header
-2. Clic en **"Sincronizar QB"**
-3. Clic en **"📋 Cierre mensual"**
-4. Descarga el reporte para tu contador
+1. Sube el proyecto a GitHub
+2. Ve a https://vercel.com y conecta tu repo
+3. En **Environment Variables**, agrega todas las variables de `.env.local`
+4. Cambia `APP_URL` a tu URL de Vercel
+5. Actualiza `QB_REDIRECT_URI` en QuickBooks Developer
 
-### Gastos personales (mensual)
-1. Descarga CSV de tus tarjetas Chase/Amex/etc.
-2. Ve a pestaña **"Personal"**
-3. Pega el contenido del CSV
-4. Clic en **"🤖 Analizar con AI"**
+**Nota**: SQLite no funciona en Vercel serverless. Para producción necesitas:
+- Cambiar a **Turso** (SQLite en la nube, gratis) → https://turso.tech
+- O **PlanetScale** / **Supabase** (PostgreSQL)
+
+### Opción B — VPS (DigitalOcean, $6/mes)
+
+```bash
+# En tu servidor
+git clone tu-repo
+cd fortis-2
+npm install
+npm run build
+npm start
+```
 
 ---
 
-## Arquitectura
+## Estructura del proyecto
 
 ```
-jp-legacy-finance/
+fortis-2/
+├── .env.example           # Template de variables de entorno
+├── package.json           # Dependencias
+├── next.config.js         # Config de Next.js
+│
 ├── lib/
-│   ├── quickbooks.js     — QB API: OAuth, transacciones, reportes
-│   ├── claude.js         — Claude AI: análisis, reportes, chat
-│   ├── companies.js      — Config de todas las empresas
-│   └── tokenStore.js     — Almacenamiento de tokens OAuth
+│   ├── companies.js       # Configuración de empresas
+│   ├── db.js              # Base de datos SQLite (tokens, transacciones)
+│   ├── quickbooks.js      # Cliente OAuth + API de QuickBooks
+│   └── claude.js          # Motor de análisis AI con Claude
+│
 ├── pages/
-│   ├── index.js          — Dashboard principal (React)
+│   ├── _app.js            # Wrapper de Next.js
+│   ├── index.js           # Dashboard principal (toda la UI)
+│   │
 │   └── api/
+│       ├── dashboard.js   # GET  - Datos agregados del dashboard
+│       ├── transactions.js# GET  - Transacciones por categoría
+│       │
 │       ├── qb/
-│       │   ├── connect.js  — Inicia OAuth QB
-│       │   ├── callback.js — Maneja redirect OAuth
-│       │   ├── sync.js     — Sincroniza transacciones
-│       │   └── status.js   — Estado de conexiones
-│       └── analyze.js      — Análisis con Claude AI
-└── .env.local            — Variables de entorno (NO subir a git)
+│       │   ├── auth.js    # GET  - Inicia OAuth de QuickBooks
+│       │   ├── callback.js# GET  - Recibe callback OAuth
+│       │   ├── sync.js    # POST - Sincroniza transacciones
+│       │   └── status.js  # GET  - Estado de conexión
+│       │
+│       └── ai/
+│           ├── analyze.js # POST - Análisis AI de gastos
+│           └── chat.js    # POST - Chat con asesor financiero
+│
+├── styles/
+│   └── globals.css        # Estilos globales (tema oscuro)
+│
+└── data/
+    └── finance.db         # Base de datos SQLite (se crea automáticamente)
 ```
 
 ---
 
-## Preguntas frecuentes
+## API Endpoints
 
-**¿Cuánto cuesta?**
-- Vercel: $0 (plan gratuito)
-- QuickBooks Developer App: $0
-- Anthropic API: ~$2-5/mes con uso normal (mucho menos que $200 del bookkeeper)
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/dashboard?company=all&year=2025` | Datos del dashboard |
+| GET | `/api/transactions?category=Contract+Labor` | Transacciones por categoría |
+| GET | `/api/qb/auth?company=real-legacy` | Iniciar OAuth |
+| GET | `/api/qb/callback` | Callback OAuth (automático) |
+| POST | `/api/qb/sync` | Sincronizar QuickBooks |
+| GET | `/api/qb/status` | Estado de conexión |
+| POST | `/api/ai/analyze` | Análisis AI de gastos |
+| POST | `/api/ai/chat` | Chat con asesor |
 
-**¿Es seguro guardar los tokens de QB?**
-En desarrollo se guardan en `.tokens.json` (archivo local). En producción usar Vercel KV (ver comentarios en `lib/tokenStore.js`). Los tokens nunca salen de tu servidor.
+---
 
-**¿Qué pasa si expira el token de QB?**
-El sistema refresca los tokens automáticamente. Solo necesitas reconectar una vez cada 6 meses.
+## Costos mensuales
 
-**¿Puedo conectar QuickBooks de todas las empresas con la misma app?**
-Sí. Una sola app de QB Developer puede conectarse a múltiples empresas/cuentas.
+| Servicio | Costo |
+|----------|-------|
+| QuickBooks Developer App | **$0** (gratis) |
+| Claude API (Sonnet) | **~$5-10/mes** (según uso) |
+| Vercel hosting | **$0** (plan gratuito) |
+| **Total** | **~$5-10/mes** |
+
+vs. Bookkeeper anterior: **$200/mes** → Ahorro de **$190/mes** ($2,280/año)
 
 ---
 
 ## Soporte
 
-El sistema fue configurado específicamente para:
-- Real Legacy LLC (JP Legacy Group)
-- JP Legacy Media and Consulting LLC  
-- VAU Nutrition LLC
-- Paola Alexandra Diaz Lozada PA
-- Reborn Houses LLC
-- JP Legacy Homes LLC
-- Jorge Manuel Florez Gutierrez LLC
+Si tienes problemas:
+1. Verifica que `.env.local` tiene todas las variables
+2. Revisa la consola del navegador (F12) para errores
+3. Revisa los logs del servidor en la terminal donde ejecutas `npm run dev`
+4. Para reconectar QuickBooks, visita `/api/qb/auth?company=EMPRESA`

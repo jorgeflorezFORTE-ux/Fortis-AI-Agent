@@ -1,46 +1,38 @@
 /**
- * pages/api/qb/callback.js
- * Maneja el redirect de QuickBooks después del login OAuth
- * Intercambia el código por tokens y los guarda
+ * /api/qb/callback.js
+ * Recibe el callback de QuickBooks OAuth y guarda los tokens
  */
 
-import { exchangeCodeForToken } from '../../../lib/quickbooks';
-import { saveToken } from '../../../lib/tokenStore';
+const { handleCallback } = require('../../../lib/quickbooks');
+const { saveToken } = require('../../../lib/db');
 
 export default async function handler(req, res) {
-  const { code, realmId, state, error } = req.query;
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
-  if (error) {
-    console.error('QB OAuth error:', error);
-    return res.redirect(`/?error=${error}`);
-  }
+  const companyId = req.query.state;
+  const realmId = req.query.realmId;
 
-  if (!code || !realmId) {
-    return res.redirect('/?error=missing_params');
+  if (!companyId || !realmId) {
+    return res.status(400).json({ error: 'Faltan parámetros de callback' });
   }
 
   try {
-    // Decodificamos el state para saber qué empresa es
-    let companyId = 'unknown';
-    try {
-      const decoded = JSON.parse(Buffer.from(state, 'base64').toString());
-      companyId = decoded.company || 'unknown';
-    } catch {
-      // state mal formado, usamos realmId como fallback
-    }
+    const fullUrl = `${process.env.APP_URL}${req.url}`;
+    const tokenData = await handleCallback(fullUrl);
 
-    // Intercambiamos el código por tokens
-    const tokenData = await exchangeCodeForToken(code);
+    saveToken(companyId, {
+      realmId,
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      token_type: tokenData.token_type,
+      expires_at: Date.now() + (tokenData.expires_in * 1000),
+      x_refresh_token_expires_in: tokenData.x_refresh_token_expires_in,
+    });
 
-    // Guardamos con el realmId incluido
-    saveToken(companyId, { ...tokenData, realmId });
-
-    console.log(`✅ QB conectado: ${companyId} (realmId: ${realmId})`);
-
-    // Redirigimos al dashboard con éxito
-    res.redirect(`/?connected=${companyId}&realmId=${realmId}`);
+    // Redirigir al dashboard con mensaje de éxito
+    res.redirect(`/?connected=${companyId}`);
   } catch (err) {
-    console.error('Error en QB callback:', err.response?.data || err.message);
-    res.redirect(`/?error=token_exchange_failed&msg=${encodeURIComponent(err.message)}`);
+    console.error('OAuth callback error:', err);
+    res.redirect(`/?error=oauth_failed&company=${companyId}`);
   }
 }

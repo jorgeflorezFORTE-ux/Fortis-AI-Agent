@@ -1,638 +1,255 @@
-import React from 'react';
-/**
- * pages/index.js — Fortis AI · Dashboard profesional
- */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import Head from 'next/head';
-import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
-import { es } from 'date-fns/locale';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
+} from 'recharts';
 
-const fmt = n => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n||0);
-const fmtS = n => { const a=Math.abs(n||0); if(a>=1000000) return (n<0?'-':'')+'$'+(a/1000000).toFixed(2)+'M'; if(a>=1000) return (n<0?'-':'')+'$'+(a/1000).toFixed(0)+'k'; return fmt(n); };
+const C = {
+  bg: '#0B0F14', surface: '#121820', surfaceHover: '#1A2230', border: '#1E2A3A',
+  accent: '#C8A46E', accentDim: 'rgba(200,164,110,0.12)',
+  green: '#34D399', greenDim: 'rgba(52,211,153,0.12)',
+  red: '#F87171', redDim: 'rgba(248,113,113,0.12)',
+  amber: '#FBBF24', amberDim: 'rgba(251,191,36,0.12)',
+  blue: '#60A5FA', blueDim: 'rgba(96,165,250,0.12)',
+  purple: '#A78BFA', purpleDim: 'rgba(167,139,250,0.12)',
+  teal: '#2DD4BF', pink: '#EC4899',
+  text: '#E8ECF1', muted: '#7A8BA3', dim: '#4A5568',
+};
 
-function Sparkline({ data=[], color='#22d3a5', height=36, width=80 }) {
-  if(!data.length) return null;
-  const max=Math.max(...data,1), min=Math.min(...data,0), range=max-min||1;
-  const pts=data.map((v,i)=>`${(i/(data.length-1))*width},${height-((v-min)/range)*height*0.8-height*0.1}`).join(' ');
-  return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{overflow:'visible'}}><polyline fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={pts}/></svg>;
+const COMPANIES = [
+  { id: 'all', name: 'Consolidado', icon: '◆', color: C.accent },
+  { id: 'real-legacy', name: 'Real Legacy LLC', sub: 'Real Estate', icon: 'R', color: '#C8A46E' },
+  { id: 'jp-media', name: 'JP Legacy Media', sub: 'Marketing · Referidos', icon: 'J', color: '#60A5FA' },
+  { id: 'paola-pa', name: 'Paola Diaz PA', sub: 'Comisiones', icon: 'P', color: '#A78BFA' },
+  { id: 'vau-nutrition', name: 'VAU Nutrition', sub: 'Nutrition', icon: 'V', color: '#2DD4BF' },
+  { id: 'reborn', name: 'Reborn Houses', sub: 'Lote Comercial', icon: 'H', color: '#F472B6' },
+  { id: 'jorge-llc', name: 'Jorge Florez LLC', sub: 'Personal', icon: 'G', color: '#7A8BA3' },
+];
+
+const PERSONAL = [
+  { id: 'personal-jorge', name: 'Jorge — Personal', sub: 'Tarjetas · Bancos', icon: 'J', color: '#F59E0B' },
+  { id: 'personal-paola', name: 'Paola — Personal', sub: 'Tarjetas · Bancos', icon: 'P', color: '#EC4899' },
+  { id: 'personal-hogar', name: 'Gastos del Hogar', sub: 'Compartidos', icon: 'H', color: '#8B5CF6' },
+];
+
+const CAT_COLORS = [C.red, C.amber, C.blue, C.purple, C.teal, '#F472B6', C.green, C.muted, '#F59E0B', '#EC4899'];
+const isPers = (id) => id?.startsWith('personal-');
+const fmt = (n) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-US');
+const fmtDec = (n) => (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+async function api(path, opts = {}) { const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined }); return res.json(); }
+
+function MetricCard({ label, value, sub, color, delay = 0 }) {
+  return (<div className="fade-up" style={{ background: C.surface, borderRadius: 12, padding: '18px 20px', border: '0.5px solid '+C.border, animationDelay: delay+'ms' }}><div style={{ fontSize: 12, color: C.muted, marginBottom: 6, letterSpacing: '0.03em', textTransform: 'uppercase' }}>{label}</div><div style={{ fontSize: 26, fontWeight: 600, color: color || C.text, fontFeatureSettings: "'tnum'" }}>{value}</div>{sub && <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{sub}</div>}</div>);
+}
+function SyncBadge({ connected, syncing, onClick, label }) {
+  return (<div onClick={onClick} style={{ display:'flex',alignItems:'center',gap:8,padding:'6px 12px',borderRadius:8,background:syncing?C.amberDim:connected?C.greenDim:C.redDim,fontSize:12,fontWeight:500,cursor:'pointer',color:syncing?C.amber:connected?C.green:C.red }}><span style={{ width:6,height:6,borderRadius:'50%',background:syncing?C.amber:connected?C.green:C.red,animation:syncing?'pulse 1.2s infinite':'none' }} />{syncing?'Sincronizando...':label||(connected?'QB Conectado':'Conectar QB')}</div>);
+}
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (<div style={{ background:C.surface,border:'0.5px solid '+C.border,borderRadius:8,padding:'10px 14px',fontSize:12 }}><div style={{ color:C.muted,marginBottom:6,fontWeight:500 }}>{label}</div>{payload.map((p,i)=>(<div key={i} style={{ display:'flex',alignItems:'center',gap:6,marginBottom:2 }}><span style={{ width:8,height:8,borderRadius:2,background:p.color }} /><span style={{ color:C.muted }}>{p.name}:</span><span style={{ fontWeight:600 }}>{fmt(p.value)}</span></div>))}</div>);
+}
+function CategoryRow({ cat, index, isOpen, onToggle }) {
+  return (<div style={{ marginBottom: isOpen?0:4 }}><div onClick={onToggle} style={{ display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderRadius:isOpen?'10px 10px 0 0':'10px',background:isOpen?C.surfaceHover:C.surface,border:'0.5px solid '+(isOpen?C.border:'transparent'),cursor:'pointer' }}><span style={{ fontSize:10,color:C.muted,transform:isOpen?'rotate(90deg)':'none',width:14,textAlign:'center',transition:'transform 0.2s' }}>&#9654;</span><span style={{ width:8,height:8,borderRadius:2,background:CAT_COLORS[index%CAT_COLORS.length],flexShrink:0 }} /><span style={{ flex:1,fontSize:13 }}>{cat.name}</span><div style={{ width:80,height:4,borderRadius:2,background:C.border,overflow:'hidden' }}><div style={{ height:'100%',width:Math.min(cat.pct,100)+'%',background:CAT_COLORS[index%CAT_COLORS.length],borderRadius:2 }} /></div><span style={{ fontSize:13,fontWeight:600,color:C.red,minWidth:75,textAlign:'right',fontFeatureSettings:"'tnum'" }}>{fmt(cat.amount)}</span><span style={{ fontSize:11,color:C.muted,minWidth:40,textAlign:'right' }}>{cat.pct}%</span></div>{isOpen && (<div style={{ border:'0.5px solid '+C.border,borderTop:'none',borderRadius:'0 0 10px 10px',overflow:'hidden',animation:'fadeUp 0.2s both' }}>{cat.transactions?.length > 0 ? (<><div style={{ display:'grid',gridTemplateColumns:'80px 1fr 90px 80px',padding:'8px 14px',fontSize:11,color:C.dim,borderBottom:'0.5px solid '+C.border,background:C.surface,textTransform:'uppercase',letterSpacing:'0.04em' }}><span>Fecha</span><span>Descripción</span><span style={{ textAlign:'right' }}>Monto</span><span style={{ textAlign:'right' }}>Método</span></div>{cat.transactions.map((t,i)=>(<div key={i} style={{ display:'grid',gridTemplateColumns:'80px 1fr 90px 80px',padding:'10px 14px',fontSize:12,borderBottom:i<cat.transactions.length-1?'0.5px solid '+C.border:'none' }}><span style={{ color:C.muted }}>{t.date?.slice(5)||'—'}</span><span style={{ overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{t.description||t.vendor||'—'}</span><span style={{ textAlign:'right',fontWeight:600,color:C.red }}>-{fmtDec(t.amount)}</span><span style={{ textAlign:'right',color:C.muted,fontSize:11 }}>{t.payment_method||'—'}</span></div>))}<div style={{ display:'flex',justifyContent:'space-between',padding:'10px 14px',background:C.surface,borderTop:'0.5px solid '+C.border,fontSize:12 }}><span style={{ color:C.muted }}>{cat.transactions.length} transacciones</span><span style={{ fontWeight:600,color:C.red }}>{fmt(cat.amount)} total</span></div></>):(<div style={{ padding:'20px 14px',textAlign:'center',color:C.muted,fontSize:13 }}>{cat.count||0} transacciones — sincroniza para ver detalle</div>)}</div>)}</div>);
+}
+function InsightCard({ insight, delay = 0 }) {
+  const s = {critical:{b:C.red,bg:C.redDim,c:C.red},warning:{b:C.amber,bg:C.amberDim,c:C.amber},info:{b:C.blue,bg:C.blueDim,c:C.blue},success:{b:C.green,bg:C.greenDim,c:C.green}}[insight.tipo]||{b:C.blue,bg:C.blueDim,c:C.blue};
+  return (<div className="fade-up" style={{ display:'flex',gap:14,padding:'16px 18px',background:C.surface,borderRadius:12,border:'0.5px solid '+C.border,borderLeft:'3px solid '+s.b,animationDelay:delay+'ms',marginBottom:10 }}><div style={{ width:28,height:28,borderRadius:'50%',background:s.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700,color:s.c,flexShrink:0 }}>{insight.tipo==='success'?'✓':'!'}</div><div style={{ flex:1,minWidth:0 }}><div style={{ fontSize:13,fontWeight:600,marginBottom:4 }}>{insight.titulo}</div><div style={{ fontSize:12,color:C.muted,lineHeight:1.6,marginBottom:insight.ahorro_estimado?10:0 }}>{insight.descripcion}</div>{insight.ahorro_estimado>0&&(<div style={{ display:'flex',alignItems:'center',gap:10,flexWrap:'wrap' }}><span style={{ fontSize:12,padding:'4px 10px',borderRadius:6,background:s.bg,color:s.c,fontWeight:600 }}>Ahorro: {fmt(insight.ahorro_estimado)}/mes</span>{insight.accion&&<span style={{ fontSize:12,padding:'4px 10px',borderRadius:6,background:C.surfaceHover,color:C.accent,fontWeight:500 }}>{insight.accion} →</span>}</div>)}</div></div>);
+}
+function SidebarItem({ item, active, collapsed, onClick }) {
+  return (<div onClick={onClick} style={{ display:'flex',alignItems:'center',gap:10,padding:collapsed?'10px 6px':'10px 10px',borderRadius:8,cursor:'pointer',background:active?C.surfaceHover:'transparent',marginBottom:2,border:active?'0.5px solid '+C.border:'0.5px solid transparent' }}><div style={{ width:30,height:30,borderRadius:8,background:active?item.color+'22':C.surfaceHover,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:600,color:item.color,flexShrink:0 }}>{item.icon}</div>{!collapsed&&(<div style={{ minWidth:0 }}><div style={{ fontSize:13,fontWeight:active?600:400,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{item.name}</div>{item.sub&&<div style={{ fontSize:11,color:C.muted }}>{item.sub}</div>}</div>)}</div>);
 }
 
-function KpiCard({ label, value, sub, delta, sparkData, color='#22d3a5' }) {
-  const isPos = delta >= 0;
-  return (
-    <div style={{background:'#16213e',border:'1px solid #1e2d4a',borderRadius:16,padding:'20px 24px',position:'relative',overflow:'hidden'}}>
-      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:12}}>
-        <div style={{fontSize:11,color:'#7c8db5',fontWeight:500,textTransform:'uppercase',letterSpacing:'.06em'}}>{label}</div>
-        {sparkData&&<Sparkline data={sparkData} color={color}/>}
-      </div>
-      <div style={{fontSize:28,fontWeight:700,color:'#f0f4ff',letterSpacing:'-1px',marginBottom:6}}>{value}</div>
-      <div style={{display:'flex',alignItems:'center',gap:8}}>
-        {delta!==undefined&&<span style={{fontSize:11,fontWeight:600,color:isPos?'#22d3a5':'#f87171',background:isPos?'rgba(34,211,165,.12)':'rgba(248,113,113,.12)',padding:'2px 8px',borderRadius:20}}>{isPos?'▲':'▼'} {Math.abs(delta)}%</span>}
-        {sub&&<span style={{fontSize:12,color:'#7c8db5'}}>{sub}</span>}
-      </div>
-      <div style={{position:'absolute',bottom:0,left:0,right:0,height:3,background:`linear-gradient(90deg, ${color}50, transparent)`}}/>
-    </div>
-  );
-}
+export default function Dashboard() {
+  const [activeCompany, setActiveCompany] = useState('all');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [openCat, setOpenCat] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [year, setYear] = useState(2025);
+  const [data, setData] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [catTransactions, setCatTransactions] = useState({});
+  const [chatMsg, setChatMsg] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [connections, setConnections] = useState([]);
+  const [personalData, setPersonalData] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState(null);
+  const [uploadSource, setUploadSource] = useState('');
+  const fileRef = useRef(null);
+  const isP = isPers(activeCompany);
 
-function Spin({ size=14, color='#22d3a5' }) {
-  return <span style={{display:'inline-block',width:size,height:size,border:`2px solid rgba(255,255,255,.1)`,borderTopColor:color,borderRadius:'50%',animation:'spin .7s linear infinite'}}/>;
-}
-
-function AnalysisResult({ result, type }) {
-  if(!result) return null;
-  if(type==='chat') return <div style={{fontSize:13,lineHeight:1.7,color:'#c8d4f0',whiteSpace:'pre-wrap'}}>{result}</div>;
-  return (
-    <div style={{display:'flex',flexDirection:'column',gap:12}}>
-      {result.resumenEjecutivo&&<div style={{background:'rgba(59,130,246,.1)',borderLeft:'3px solid #3b82f6',borderRadius:'0 12px 12px 0',padding:'12px 14px'}}>
-        <div style={{fontSize:11,fontWeight:700,color:'#818cf8',marginBottom:4,textTransform:'uppercase',letterSpacing:'.06em'}}>Resumen del asesor</div>
-        <div style={{color:'#c8d4f0',fontSize:13,lineHeight:1.6}}>{result.resumenEjecutivo}</div>
-        {result.score&&<div style={{marginTop:6,fontSize:12,color:'#7c8db5'}}>Score financiero: <strong style={{color:'#22d3a5'}}>{result.score}/100</strong></div>}
-      </div>}
-      {result.transaccionesInusuales?.map((t,i)=>(
-        <div key={i} style={{background:'rgba(251,191,36,.08)',borderLeft:'3px solid #fbbf24',borderRadius:'0 12px 12px 0',padding:'12px 14px'}}>
-          <div style={{fontWeight:600,color:'#fbbf24',fontSize:13}}>{t.descripcion} — {fmt(t.monto)}</div>
-          <div style={{color:'#c8d4f0',fontSize:12,marginTop:2}}>{t.alerta}</div>
-          {t.accion&&<div style={{color:'#22d3a5',fontSize:12,marginTop:4,fontWeight:500}}>→ {t.accion}</div>}
-        </div>
-      ))}
-      {result.entradasContables?.length>0&&<div>
-        <div style={{fontSize:11,fontWeight:600,color:'#3d5070',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:8}}>Entradas contables</div>
-        {result.entradasContables.map((je,i)=>(
-          <div key={i} style={{background:'#0d1526',borderRadius:10,padding:'12px 14px',marginBottom:8,border:'1px solid #1e2d4a'}}>
-            <div style={{fontSize:13,fontWeight:600,color:'#e8edf8',marginBottom:8}}>{je.fecha} — {je.descripcion}</div>
-            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-              <thead><tr style={{color:'#3d5070'}}><td style={{padding:'4px 0'}}>Cuenta</td><td style={{textAlign:'right',padding:'4px 0'}}>Debe</td><td style={{textAlign:'right',padding:'4px 0'}}>Haber</td></tr></thead>
-              <tbody>{je.lineas?.map((l,j)=>(<tr key={j} style={{borderTop:'1px solid #1a2840'}}><td style={{padding:'4px 0',fontWeight:500,color:'#c8d4f0'}}>{l.cuenta}</td><td style={{textAlign:'right',color:'#f87171',fontFamily:'monospace',padding:'4px 0'}}>{l.debe>0?fmt(l.debe):''}</td><td style={{textAlign:'right',color:'#22d3a5',fontFamily:'monospace',padding:'4px 0'}}>{l.haber>0?fmt(l.haber):''}</td></tr>))}</tbody>
-            </table>
-          </div>
-        ))}
-      </div>}
-      {result.recomendaciones?.length>0&&<div>
-        <div style={{fontSize:11,fontWeight:600,color:'#3d5070',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:8}}>Recomendaciones</div>
-        {result.recomendaciones.map((r,i)=>(
-          <div key={i} style={{display:'flex',gap:10,marginBottom:8,fontSize:13,alignItems:'flex-start'}}>
-            <div style={{width:22,height:22,borderRadius:'50%',background:'rgba(34,211,165,.15)',color:'#22d3a5',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0,marginTop:1}}>{i+1}</div>
-            <div style={{color:'#c8d4f0',lineHeight:1.5}}>{r}</div>
-          </div>
-        ))}
-      </div>}
-      {result.accionesPrioritarias?.length>0&&<div style={{background:'rgba(34,211,165,.08)',borderLeft:'3px solid #22d3a5',borderRadius:'0 12px 12px 0',padding:'12px 14px'}}>
-        <div style={{fontSize:11,fontWeight:700,color:'#22d3a5',marginBottom:6,textTransform:'uppercase',letterSpacing:'.06em'}}>Acciones esta semana</div>
-        {result.accionesPrioritarias.map((a,i)=><div key={i} style={{fontSize:13,color:'#c8d4f0',marginBottom:3}}>✓ {a}</div>)}
-      </div>}
-    </div>
-  );
-}
-
-function YearOverview({ currentYear, connectedCount }) {
-  const prevYear = currentYear - 1;
-  const [curr, setCurr] = React.useState(null);
-  const [prev, setPrev] = React.useState(null);
-  const [loadingCurr, setLoadingCurr] = React.useState(false);
-  const [loadingPrev, setLoadingPrev] = React.useState(false);
-  const [prevFrozen, setPrevFrozen] = React.useState(false);
-  const f = n => { const a=Math.abs(n||0); if(a>=1000000) return (n<0?'-':'')+'$'+(a/1000000).toFixed(2)+'M'; if(a>=1000) return (n<0?'-':'')+'$'+(a/1000).toFixed(0)+'k'; return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n||0); };
-
-  React.useEffect(() => {
-    loadFrozenPrev();
-  }, []);
-
-  const loadFrozenPrev = async () => {
+  const loadData = useCallback(async () => {
     try {
-      const r = await window.storage.get('fortis-year-' + prevYear);
-      if (r) { setPrev(JSON.parse(r.value)); setPrevFrozen(true); }
-    } catch(e) {}
-  };
+      if (isPers(activeCompany)) { const r = await api('/api/personal/summary?account='+activeCompany+'&year='+year); setPersonalData(r); setData(null); }
+      else { const r = await api('/api/dashboard?company='+activeCompany+'&year='+year); setData(r); setPersonalData(null); if(r.connections) setConnections(r.connections); }
+    } catch(e){ console.error(e); }
+  }, [activeCompany, year]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  const fetchYear = async (year, setData, setLoading, freeze) => {
-    if(connectedCount===0) return;
-    setLoading(true);
-    try {
-      const r = await fetch('/api/qb/year', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year})});
-      const d = await r.json();
-      if(d.success) {
-        setData(d);
-        if(freeze) {
-          await window.storage.set('fortis-year-'+year, JSON.stringify(d));
-          setPrevFrozen(true);
-        }
-      }
-    } catch(e) {}
-    setLoading(false);
-  };
+  const loadCatTxns = async (n) => { if(catTransactions[n]) return; try { const r = await api('/api/transactions?category='+encodeURIComponent(n)+'&company='+activeCompany+'&start='+year+'-01-01&end='+year+'-12-31'); setCatTransactions(p=>({...p,[n]:r.transactions})); } catch(e){} };
+  const handleSync = async () => { setSyncing(true); try { await api('/api/qb/sync',{method:'POST',body:{company:activeCompany==='all'?null:activeCompany,year}}); await loadData(); } catch(e){} setSyncing(false); };
+  const runAnalysis = async () => { setAnalyzing(true); try { const r = await api('/api/ai/analyze',{method:'POST',body:{company:activeCompany,year}}); setAnalysis(r); } catch(e){} setAnalyzing(false); };
+  const sendChat = async () => { if(!chatMsg.trim()) return; const m=chatMsg; setChatMsg(''); setChatHistory(p=>[...p,{role:'user',text:m}]); setChatLoading(true); try { const r = await api('/api/ai/chat',{method:'POST',body:{message:m,company:activeCompany,year}}); setChatHistory(p=>[...p,{role:'ai',text:r.response}]); } catch(e){ setChatHistory(p=>[...p,{role:'ai',text:'Error al conectar.'}]); } setChatLoading(false); };
+  const handleUpload = async (e) => { const f=e.target.files?.[0]; if(!f) return; setUploading(true); setUploadResult(null); try { const t=await f.text(); const r=await api('/api/personal/upload',{method:'POST',body:{accountId:activeCompany,sourceName:uploadSource||f.name.replace(/\.[^.]+$/,''),csvContent:t,filename:f.name}}); setUploadResult(r); await loadData(); } catch(e){ setUploadResult({error:e.message}); } setUploading(false); e.target.value=''; };
+  const sw = (id) => { setActiveCompany(id); setActiveTab('dashboard'); setOpenCat(null); setAnalysis(null); setUploadResult(null); setCatTransactions({}); };
 
-  const maxIncome = Math.max(curr?.total?.income||0, prev?.total?.income||0, 1);
-  const maxExpenses = Math.max(curr?.total?.expenses||0, prev?.total?.expenses||0, 1);
-
-  const MonthRow = ({ m, pc, label, year }) => {
-    const hasData = m.income > 0 || m.expenses > 0;
-    const pcData = pc?.months?.find(x => x.monthIndex === m.monthIndex);
-    const yoy = pcData && pcData.net !== 0 ? Math.round(((m.net - pcData.net) / Math.abs(pcData.net)) * 100) : null;
-    return (
-      <tr style={{borderTop:'1px solid #1a2840'}}>
-        <td style={{padding:'8px',color:'#e8edf8',fontWeight:500,fontSize:12}}>{m.month}</td>
-        <td style={{textAlign:'right',padding:'8px',color:'#22d3a5',fontFamily:'monospace',fontSize:12}}>{hasData?f(m.income):'-'}</td>
-        <td style={{textAlign:'right',padding:'8px',color:'#f87171',fontFamily:'monospace',fontSize:12}}>{hasData?f(m.expenses):'-'}</td>
-        <td style={{textAlign:'right',padding:'8px',fontWeight:700,fontFamily:'monospace',fontSize:12,color:m.net>=0?'#22d3a5':'#f87171'}}>{hasData?f(m.net):'-'}</td>
-        {pc && <td style={{textAlign:'right',padding:'8px',fontSize:11,color:yoy===null?'#3d5070':yoy>=0?'#22d3a5':'#f87171'}}>
-          {yoy!==null?(yoy>=0?'▲':'▼')+Math.abs(yoy)+'%':'-'}
-        </td>}
-        <td style={{textAlign:'center',padding:'8px'}}>
-          {hasData&&<span style={{background:m.net>=0?'rgba(34,211,165,.15)':'rgba(248,113,113,.15)',color:m.net>=0?'#22d3a5':'#f87171',padding:'2px 8px',borderRadius:20,fontSize:10,fontWeight:600}}>{m.net>=0?'Ganancia':'Perdida'}</span>}
-        </td>
-      </tr>
-    );
-  };
-
-  const SummaryCard = ({ data, year, isCurrentYear, loading, onLoad, onFreeze, frozen }) => {
-    if (!data && !loading) return (
-      <div style={{background:'#0d1526',borderRadius:12,padding:20,textAlign:'center',border:'1px dashed #1e2d4a',flex:1,minWidth:280}}>
-        <div style={{fontSize:13,color:'#3d5070',marginBottom:12}}>{isCurrentYear ? 'Año actual ' + year : 'Año anterior ' + year + (frozen?' (guardado)':'')}
-        </div>
-        <button onClick={onLoad} style={{background:'rgba(34,211,165,.15)',color:'#22d3a5',border:'1px solid rgba(34,211,165,.3)',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:600,cursor:'pointer'}}>
-          {isCurrentYear ? 'Cargar ' + year : frozen ? 'Ya guardado' : 'Cargar y congelar ' + year}
-        </button>
-        {!isCurrentYear && <div style={{fontSize:11,color:'#3d5070',marginTop:8}}>Se guarda una sola vez — no se vuelve a jalar de QB</div>}
-      </div>
-    );
-
-    if (loading) return (
-      <div style={{background:'#0d1526',borderRadius:12,padding:20,textAlign:'center',flex:1,minWidth:280}}>
-        <div style={{fontSize:13,color:'#7c8db5'}}>Jalando {year} de QuickBooks...</div>
-      </div>
-    );
-
-    return (
-      <div style={{background:'#0d1526',borderRadius:12,padding:16,flex:1,minWidth:280,border:isCurrentYear?'1px solid rgba(34,211,165,.2)':'1px solid rgba(255,255,255,.05)'}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
-          <div style={{fontSize:12,fontWeight:600,color:isCurrentYear?'#22d3a5':'#7c8db5'}}>{year} {isCurrentYear?'(en curso)':'📸 (foto fija)'}</div>
-          <div style={{display:'flex',gap:6}}>
-            {isCurrentYear && <button onClick={onLoad} style={{background:'transparent',border:'1px solid #1e2d4a',borderRadius:6,padding:'3px 8px',fontSize:11,color:'#7c8db5',cursor:'pointer'}}>Refrescar</button>}
-            {!isCurrentYear && !frozen && <button onClick={onFreeze} style={{background:'transparent',border:'1px solid rgba(34,211,165,.3)',borderRadius:6,padding:'3px 8px',fontSize:11,color:'#22d3a5',cursor:'pointer'}}>Guardar foto</button>}
-            {!isCurrentYear && frozen && <span style={{fontSize:10,color:'#3d5070',padding:'3px 8px'}}>Guardado ✓</span>}
-          </div>
-        </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:8}}>
-          <div style={{textAlign:'center'}}>
-            <div style={{fontSize:9,color:'#3d5070',marginBottom:2,textTransform:'uppercase',letterSpacing:'.05em'}}>Ingresos</div>
-            <div style={{fontSize:16,fontWeight:800,color:'#22d3a5'}}>{f(data.total.income)}</div>
-            <div style={{fontSize:9,color:'#3d5070',marginTop:2}}>Suma de ingresos de todas las empresas en el ano</div>
-          </div>
-          <div style={{textAlign:'center'}}>
-            <div style={{fontSize:9,color:'#3d5070',marginBottom:2,textTransform:'uppercase',letterSpacing:'.05em'}}>Gastos</div>
-            <div style={{fontSize:16,fontWeight:800,color:'#f87171'}}>{f(data.total.expenses)}</div>
-            <div style={{fontSize:9,color:'#3d5070',marginTop:2}}>Total de egresos operativos registrados en QB</div>
-          </div>
-          <div style={{textAlign:'center'}}>
-            <div style={{fontSize:9,color:'#3d5070',marginBottom:2,textTransform:'uppercase',letterSpacing:'.05em'}}>Neto</div>
-            <div style={{fontSize:16,fontWeight:800,color:data.total.net>=0?'#22d3a5':'#f87171'}}>{f(data.total.net)}</div>
-            <div style={{fontSize:9,color:'#3d5070',marginTop:2}}>Ingresos minus gastos del periodo</div>
-          </div>
-        </div>
-        <div style={{display:'flex',gap:4,height:60,alignItems:'flex-end'}}>
-          {data.months.map((m,i)=>{
-            const maxM=Math.max(...data.months.map(x=>Math.max(x.income,x.expenses)),1);
-            const iH=Math.round((m.income/maxM)*52);
-            const eH=Math.round((m.expenses/maxM)*52);
-            const has=m.income>0||m.expenses>0;
-            return <div key={i} style={{flex:1,display:'flex',alignItems:'flex-end',gap:1}}>
-              <div style={{width:'50%',height:Math.max(iH,1),background:has?'#22d3a5':'#1e2d4a',borderRadius:'2px 2px 0 0'}}/>
-              <div style={{width:'50%',height:Math.max(eH,1),background:has?'#f87171':'#1e2d4a',borderRadius:'2px 2px 0 0'}}/>
-            </div>;
-          })}
-        </div>
-        <div style={{display:'flex',gap:16,marginTop:6}}>
-          {[{label:'Ene',i:0},{label:'Mar',i:2},{label:'Jun',i:5},{label:'Sep',i:8},{label:'Dic',i:11}].map(m=>(
-            <div key={m.i} style={{fontSize:9,color:'#3d5070'}}>{m.label}</div>
-          ))}
-        </div>
-        <div style={{marginTop:10,padding:'8px',background:'rgba(255,255,255,.03)',borderRadius:8}}>
-          <div style={{fontSize:9,color:'#3d5070',marginBottom:4}}>COMO SE CALCULA:</div>
-          <div style={{fontSize:10,color:'#7c8db5',lineHeight:1.6}}>
-            Se jala el P&L de QuickBooks de cada empresa (Real Legacy, JP Media, Paola PA, Reborn Houses) y se suman los totales del ano. Ingresos = Commission Income + todas las cuentas de Revenue. Gastos = suma de todas las cuentas de Expense del P&L. Neto = Ingresos - Gastos. Los meses sin datos en QB aparecen vacios.
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const entity = COMPANIES.find(c=>c.id===activeCompany) || PERSONAL.find(a=>a.id===activeCompany);
+  const isConn = connections.some(c=>c.connected);
+  const vd = isP ? personalData : data;
+  const cats = (vd?.categories||[]).map((c,i)=>({...c,transactions:catTransactions[c.name]||null,color:CAT_COLORS[i%CAT_COLORS.length]}));
+  const pieD = cats.map(c=>({name:c.name,value:c.amount,color:c.color}));
+  const tabs = isP ? [{id:'dashboard',l:'Resumen'},{id:'gastos',l:'Gastos detallados'},{id:'upload',l:'Subir archivo'},{id:'chat',l:'Chat'}] : [{id:'dashboard',l:'Dashboard'},{id:'gastos',l:'Gastos detallados'},{id:'asesor',l:'Asesor AI'},{id:'chat',l:'Chat financiero'}];
 
   return (
-    <div style={{background:'#16213e',border:'1px solid #1e2d4a',borderRadius:16,padding:20,marginTop:4}}>
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:11,fontWeight:600,color:'#3d5070',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2}}>Vision anual</div>
-        <div style={{fontSize:13,color:'#7c8db5'}}>Compara {currentYear} vs {prevYear} — mes a mes</div>
+    <div style={{ display:'flex',minHeight:'100vh',background:C.bg,color:C.text,fontFamily:"'DM Sans',system-ui,sans-serif" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}.fade-up{animation:fadeUp .4s both}::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:${C.border};border-radius:4px}`}</style>
+
+      {/* SIDEBAR */}
+      <div style={{ width:sidebarOpen?270:60,background:C.surface,borderRight:'0.5px solid '+C.border,display:'flex',flexDirection:'column',transition:'width 0.3s',overflow:'hidden',flexShrink:0 }}>
+        <div style={{ padding:sidebarOpen?'20px 18px':'20px 12px',borderBottom:'0.5px solid '+C.border,display:'flex',alignItems:'center',gap:10,cursor:'pointer' }} onClick={()=>setSidebarOpen(!sidebarOpen)}>
+          <div style={{ width:34,height:34,borderRadius:8,background:'linear-gradient(135deg,#C8A46E,#E8D5B0)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:700,color:'#0B0F14',flexShrink:0 }}>F</div>
+          {sidebarOpen&&<div><div style={{ fontSize:15,fontWeight:700,letterSpacing:'-0.02em' }}>Fortis 2.0</div><div style={{ fontSize:11,color:C.muted }}>Asesor financiero AI</div></div>}
+        </div>
+        <div style={{ flex:1,overflow:'auto',padding:'0 8px' }}>
+          {sidebarOpen&&<div style={{ padding:'14px 10px 6px',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:C.dim,fontWeight:600 }}>Empresas</div>}
+          {COMPANIES.map(co=><SidebarItem key={co.id} item={co} active={activeCompany===co.id} collapsed={!sidebarOpen} onClick={()=>sw(co.id)} />)}
+          {sidebarOpen&&<div style={{ height:1,background:C.border,margin:'12px 10px' }} />}
+          {sidebarOpen&&<div style={{ padding:'4px 10px 6px',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:C.dim,fontWeight:600 }}>Gastos personales</div>}
+          {!sidebarOpen&&<div style={{ height:1,background:C.border,margin:'8px 6px' }} />}
+          {PERSONAL.map(a=><SidebarItem key={a.id} item={a} active={activeCompany===a.id} collapsed={!sidebarOpen} onClick={()=>sw(a.id)} />)}
+        </div>
+        {sidebarOpen&&(<div style={{ padding:14,borderTop:'0.5px solid '+C.border }}>
+          {!isP&&<div onClick={handleSync} style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:'10px 16px',borderRadius:8,background:C.accentDim,color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer',border:'0.5px solid '+C.accent+'33',marginBottom:10 }}>{syncing?'⟳ Sincronizando...':'⟳ Sync QuickBooks'}</div>}
+          <div style={{ display:'flex',justifyContent:'center',gap:8 }}>{[2024,2025,2026].map(y=><span key={y} onClick={()=>setYear(y)} style={{ fontSize:12,padding:'3px 10px',borderRadius:6,cursor:'pointer',background:year===y?C.accentDim:'transparent',color:year===y?C.accent:C.dim,fontWeight:year===y?600:400 }}>{y}</span>)}</div>
+        </div>)}
       </div>
 
-      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:20}}>
-        <SummaryCard data={curr} year={currentYear} isCurrentYear={true} loading={loadingCurr}
-          onLoad={()=>fetchYear(currentYear,setCurr,setLoadingCurr,false)}/>
-        <SummaryCard data={prev} year={prevYear} isCurrentYear={false} loading={loadingPrev} frozen={prevFrozen}
-          onLoad={()=>fetchYear(prevYear,setPrev,setLoadingPrev,true)}
-          onFreeze={()=>fetchYear(prevYear,setPrev,setLoadingPrev,true)}/>
-      </div>
-
-      {(curr || prev) && (
-        <div style={{overflowX:'auto'}}>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:600}}>
-            <thead>
-              <tr style={{color:'#3d5070',fontSize:11,textTransform:'uppercase',letterSpacing:'.06em'}}>
-                <td style={{padding:'8px'}}>Mes</td>
-                <td style={{textAlign:'right',padding:'8px',color:'#22d3a5'}}>Ingresos {currentYear}</td>
-                <td style={{textAlign:'right',padding:'8px',color:'#f87171'}}>Gastos {currentYear}</td>
-                <td style={{textAlign:'right',padding:'8px'}}>Neto {currentYear}</td>
-                {prev&&<td style={{textAlign:'right',padding:'8px',color:'#818cf8'}}>vs {prevYear}</td>}
-                <td style={{textAlign:'center',padding:'8px'}}>Estado</td>
-              </tr>
-            </thead>
-            <tbody>
-              {(curr||prev).months.map((m,i)=>(
-                <MonthRow key={i} m={curr?curr.months[i]:m} pc={prev} label={m.month} year={currentYear}/>
-              ))}
-              {curr&&<tr style={{borderTop:'2px solid #22d3a5',background:'rgba(34,211,165,.05)'}}>
-                <td style={{padding:'10px 8px',color:'#e8edf8',fontWeight:700,fontSize:13}}>TOTAL {currentYear}</td>
-                <td style={{textAlign:'right',padding:'10px 8px',color:'#22d3a5',fontWeight:700,fontFamily:'monospace'}}>{f(curr.total.income)}</td>
-                <td style={{textAlign:'right',padding:'10px 8px',color:'#f87171',fontWeight:700,fontFamily:'monospace'}}>{f(curr.total.expenses)}</td>
-                <td style={{textAlign:'right',padding:'10px 8px',color:curr.total.net>=0?'#22d3a5':'#f87171',fontWeight:800,fontSize:14,fontFamily:'monospace'}}>{f(curr.total.net)}</td>
-                {prev&&<td style={{textAlign:'right',padding:'10px 8px',fontSize:11,color:curr.total.net>prev.total.net?'#22d3a5':'#f87171'}}>
-                  {prev.total.net!==0?(curr.total.net>prev.total.net?'▲':'▼')+Math.abs(Math.round(((curr.total.net-prev.total.net)/Math.abs(prev.total.net))*100))+'%':'-'}
-                </td>}
-                <td style={{textAlign:'center',padding:'10px 8px'}}>
-                  <span style={{background:curr.total.profitableMonths>6?'rgba(34,211,165,.15)':'rgba(248,113,113,.15)',color:curr.total.profitableMonths>6?'#22d3a5':'#f87171',padding:'3px 12px',borderRadius:20,fontSize:11,fontWeight:700}}>
-                    {curr.total.profitableMonths} meses rentables
-                  </span>
-                </td>
-              </tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function Home() {
-  const [view,setView]=useState('dashboard');
-  const [companies,setCompanies]=useState([]);
-  const [syncData,setSyncData]=useState(null);
-  const [analysis,setAnalysis]=useState(null);
-  const [analysisType,setAnalysisType]=useState(null);
-  const [loading,setLoading]=useState(false);
-  const [syncing,setSyncing]=useState(false);
-  const [selectedMonth,setSelectedMonth]=useState(()=>format(subMonths(new Date(),1),'yyyy-MM'));
-  const [csvContent,setCsvContent]=useState('');
-  const [csvSource,setCsvSource]=useState('Chase');
-  const [csvPerson,setCsvPerson]=useState('Jorge');
-  const [notification,setNotification]=useState(null);
-  const [sidebarOpen,setSidebarOpen]=useState(true);
-  const [chatInput,setChatInput]=useState('');
-  const [chatHistory,setChatHistory]=useState([]);
-  const [chatLoading,setChatLoading]=useState(false);
-  const chatEndRef=useRef(null);
-
-  const loadStatus=useCallback(async()=>{ try{ const r=await fetch('/api/qb/status'); const d=await r.json(); setCompanies(d.companies||[]); }catch(e){} },[]);
-
-  useEffect(()=>{
-    loadStatus();
-    const p=new URLSearchParams(window.location.search);
-    if(p.get('connected')){ setNotification({type:'success',msg:`✓ ${p.get('connected')} conectado`}); window.history.replaceState({},'','/'); loadStatus(); }
-    if(p.get('error')){ setNotification({type:'error',msg:`Error: ${p.get('error')}`}); window.history.replaceState({},'','/'); }
-  },[loadStatus]);
-
-  useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:'smooth'}); },[chatHistory]);
-
-  const syncAll=async()=>{
-    setSyncing(true);
-    try{
-      const[year,month]=selectedMonth.split('-');
-      const startDate=format(startOfMonth(new Date(parseInt(year),parseInt(month)-1)),'yyyy-MM-dd');
-      const endDate=format(endOfMonth(new Date(parseInt(year),parseInt(month)-1)),'yyyy-MM-dd');
-      const r=await fetch('/api/qb/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company:'all',startDate,endDate})});
-      const d=await r.json(); setSyncData(d);
-      setNotification({type:'success',msg:`✓ Sincronizado: ${d.summary?.totalTransactions} transacciones`});
-    }catch(e){ setNotification({type:'error',msg:e.message}); }
-    setSyncing(false);
-  };
-
-  const runAnalysis=async(type,extra={})=>{
-    setLoading(true); setAnalysis(null); setAnalysisType(type);
-    try{
-      let body={type,...extra};
-      if(type==='weekly'||type==='monthly'){
-        const companiesData=(syncData?.companies||[]).map(c=>({name:c.companyName,income:c.pl?.income||0,expenses:c.pl?.expenses||0,net:c.pl?.net||0,transactionCount:c.transactionCount||0,alerts:[]}));
-        body={...body,companiesData,month:selectedMonth};
-      }
-      const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      const d=await r.json();
-      if(d.success) setAnalysis(d.result); else setNotification({type:'error',msg:d.error});
-    }catch(e){ setNotification({type:'error',msg:e.message}); }
-    setLoading(false);
-  };
-
-  const sendChat=async()=>{
-    if(!chatInput.trim()||chatLoading) return;
-    const msg=chatInput.trim(); setChatInput('');
-    setChatHistory(h=>[...h,{role:'user',content:msg}]); setChatLoading(true);
-    try{
-      const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'chat',messages:[{role:'user',content:msg}],financialContext:syncData?.summary})});
-      const d=await r.json();
-      if(d.success) setChatHistory(h=>[...h,{role:'assistant',content:d.result}]);
-    }catch(e){ setChatHistory(h=>[...h,{role:'assistant',content:'Error al conectar.'}]); }
-    setChatLoading(false);
-  };
-
-  const totalIncome=syncData?.summary?.totalIncome||0;
-  const totalExpenses=syncData?.summary?.totalExpenses||0;
-  const totalNet=syncData?.summary?.totalNet||0;
-  const connectedCount=companies.filter(c=>c.connected).length;
-  const [selY,selM]=selectedMonth.split('-');
-  const monthLabel=format(new Date(parseInt(selY),parseInt(selM)-1,1),'MMMM yyyy',{locale:es});
-  const margin=totalIncome>0?Math.round((totalNet/totalIncome)*100):0;
-
-  const navItems=[{id:'dashboard',label:'Dashboard',icon:'◈'},{id:'empresas',label:'Empresas',icon:'◉'},{id:'personal',label:'Personal',icon:'◫'},{id:'reportes',label:'Reportes',icon:'▦'},{id:'asesor',label:'Asesor AI',icon:'◎'}];
-  const months=Array.from({length:24}).map((_,i)=>{ const d=subMonths(new Date(),i); return{val:format(d,'yyyy-MM'),label:format(d,'MMM yyyy',{locale:es})}; });
-
-  return (<>
-    <Head>
-      <title>Fortis — Asesor Financiero AI</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <style>{`
-        *{box-sizing:border-box;margin:0;padding:0}
-        body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;background:#0d1526;color:#e8edf8}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-        .fade-in{animation:fadeIn .25s ease}
-        input,select,textarea,button{font-family:inherit}
-        ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:#1e2d4a;border-radius:2px}
-        ::placeholder{color:#2d4060}
-        .nav-btn{display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:10px;cursor:pointer;font-size:14px;color:#7c8db5;transition:all .15s;border:none;background:transparent;width:100%;text-align:left}
-        .nav-btn:hover{background:rgba(255,255,255,.05);color:#c8d4f0}
-        .nav-btn.on{background:rgba(34,211,165,.1);color:#22d3a5;font-weight:500}
-        .card{background:#16213e;border:1px solid #1e2d4a;border-radius:16px;padding:20px;margin-bottom:14px}
-        .inp{background:#0d1526;border:1px solid #1e2d4a;border-radius:10px;padding:9px 14px;font-size:13px;color:#e8edf8;width:100%;transition:border-color .15s}
-        .inp:focus{outline:none;border-color:#22d3a5}
-        .btn-p{background:#22d3a5;color:#0d1526;border:none;border-radius:10px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s;display:inline-flex;align-items:center;gap:6px}
-        .btn-p:hover{opacity:.9}
-        .btn-p:disabled{opacity:.5;cursor:not-allowed}
-        .btn-g{background:rgba(255,255,255,.05);color:#c8d4f0;border:1px solid #1e2d4a;border-radius:10px;padding:8px 14px;font-size:13px;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
-        .btn-g:hover{background:rgba(255,255,255,.1)}
-        .bs{background:rgba(34,211,165,.15);color:#22d3a5;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600}
-        .bw{background:rgba(251,191,36,.15);color:#fbbf24;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600}
-        .be{background:rgba(248,113,113,.15);color:#f87171;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600}
-        .bm{background:rgba(255,255,255,.06);color:#7c8db5;font-size:11px;padding:3px 10px;border-radius:20px}
-        .tr{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid #1a2840;gap:10px}
-        .tr:last-child{border-bottom:none}
-        .prog{height:4px;background:#1a2840;border-radius:2px;overflow:hidden}
-        .chat-u{background:rgba(34,211,165,.1);border-radius:12px 12px 4px 12px;padding:10px 14px;font-size:13px;line-height:1.6;max-width:80%;align-self:flex-end;margin-left:auto}
-        .chat-a{background:#16213e;border:1px solid #1e2d4a;border-radius:12px 12px 12px 4px;padding:12px 14px;font-size:13px;line-height:1.7;max-width:92%;white-space:pre-wrap;color:#c8d4f0}
-        .slabel{font-size:11px;font-weight:600;color:#3d5070;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px}
-      `}</style>
-    </Head>
-    <div style={{display:'flex',minHeight:'100vh'}}>
-
-      {/* Sidebar */}
-      <aside style={{width:sidebarOpen?220:64,background:'#111d35',borderRight:'1px solid #1a2840',display:'flex',flexDirection:'column',transition:'width .25s',flexShrink:0,position:'sticky',top:0,height:'100vh',overflowY:'auto',overflowX:'hidden'}}>
-        <div style={{padding:'20px 16px 16px',borderBottom:'1px solid #1a2840',display:'flex',alignItems:'center',gap:10,justifyContent:sidebarOpen?'space-between':'center'}}>
-          {sidebarOpen&&<div><div style={{fontSize:20,fontWeight:800,color:'#22d3a5',letterSpacing:'-0.5px'}}>FORTIS</div><div style={{fontSize:10,color:'#3d5070',letterSpacing:'.1em'}}>ASESOR FINANCIERO AI</div></div>}
-          <button onClick={()=>setSidebarOpen(o=>!o)} style={{background:'none',border:'none',color:'#3d5070',cursor:'pointer',fontSize:14,padding:4,flexShrink:0}}>{sidebarOpen?'◁':'▷'}</button>
-        </div>
-        <nav style={{flex:1,padding:'12px 8px'}}>
-          {navItems.map(item=>(
-            <button key={item.id} className={`nav-btn ${view===item.id?'on':''}`} onClick={()=>setView(item.id)}>
-              <span style={{fontSize:16,width:20,textAlign:'center',flexShrink:0}}>{item.icon}</span>
-              {sidebarOpen&&<span>{item.label}</span>}
-              {sidebarOpen&&item.id==='asesor'&&<span style={{marginLeft:'auto',background:'#22d3a5',color:'#0d1526',fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:10}}>AI</span>}
-            </button>
-          ))}
-        </nav>
-        <div style={{padding:'12px 8px',borderTop:'1px solid #1a2840'}}>
-          {sidebarOpen&&<div style={{padding:'10px 12px',borderRadius:10,background:'#0d1526'}}>
-            <div style={{fontSize:10,color:'#3d5070',marginBottom:2,textTransform:'uppercase',letterSpacing:'.06em'}}>QB Conectadas</div>
-            <div style={{fontSize:22,fontWeight:800,color:'#22d3a5'}}>{connectedCount}<span style={{fontSize:13,color:'#3d5070',fontWeight:400}}>/{companies.filter(c=>c.active).length}</span></div>
-          </div>}
-        </div>
-      </aside>
-
-      {/* Main */}
-      <main style={{flex:1,overflow:'auto',minWidth:0}}>
-
-        {/* Topbar */}
-        <div style={{background:'#111d35',borderBottom:'1px solid #1a2840',padding:'12px 24px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',position:'sticky',top:0,zIndex:10}}>
+      {/* MAIN */}
+      <div style={{ flex:1,overflow:'auto',padding:'0 28px 40px' }}>
+        <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'20px 0 24px',borderBottom:'0.5px solid '+C.border,marginBottom:24,position:'sticky',top:0,background:C.bg,zIndex:10 }}>
           <div>
-            <div style={{fontSize:15,fontWeight:600,color:'#e8edf8',textTransform:'capitalize'}}>{view==='dashboard'?`Dashboard — ${monthLabel}`:navItems.find(n=>n.id===view)?.label}</div>
-            <div style={{fontSize:11,color:'#3d5070',marginTop:1}}>Jorge Florez & Paola Diaz · Florida, USA</div>
+            <div style={{ fontSize:20,fontWeight:600,display:'flex',alignItems:'center',gap:10 }}><span style={{ color:entity?.color }}>●</span> {entity?.name}{isP&&<span style={{ fontSize:11,padding:'3px 10px',borderRadius:6,background:C.purpleDim,color:C.purple,fontWeight:500 }}>No contabilizado en empresas</span>}</div>
+            <div style={{ fontSize:12,color:C.muted,marginTop:2 }}>Enero — Diciembre {year}</div>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <select value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)} className="inp" style={{width:'auto',padding:'7px 12px',fontSize:13}}>
-              {months.map(m=><option key={m.val} value={m.val}>{m.label}</option>)}
-            </select>
-            <button onClick={syncAll} disabled={syncing} className="btn-p">
-              {syncing?<Spin size={12} color="#0d1526"/>:'⟳'} {syncing?'Sincronizando…':'Sincronizar QB'}
-            </button>
-          </div>
+          {!isP&&<SyncBadge connected={isConn} syncing={syncing} onClick={handleSync} />}
+          {isP&&personalData?.uploadCount>0&&<SyncBadge connected={true} syncing={false} label={personalData.uploadCount+' archivo(s)'} onClick={()=>setActiveTab('upload')} />}
         </div>
 
-        {/* Notification */}
-        {notification&&<div style={{background:notification.type==='success'?'rgba(34,211,165,.1)':'rgba(248,113,113,.1)',borderBottom:`1px solid ${notification.type==='success'?'rgba(34,211,165,.2)':'rgba(248,113,113,.2)'}`,padding:'10px 24px',fontSize:13,color:notification.type==='success'?'#22d3a5':'#f87171',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          {notification.msg}<button onClick={()=>setNotification(null)} style={{background:'none',border:'none',cursor:'pointer',color:'inherit',fontSize:18,lineHeight:1}}>×</button>
-        </div>}
-
-        <div style={{padding:24}}>
-
-          {/* DASHBOARD */}
-          {view==='dashboard'&&<div className="fade-in">
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:12,marginBottom:18}}>
-              <KpiCard label="Ingresos" value={fmtS(totalIncome)} sub={monthLabel} delta={syncData?undefined:undefined} sparkData={[40,55,35,70,60,80,totalIncome/1000||0]} color="#22d3a5"/>
-              <KpiCard label="Gastos" value={fmtS(totalExpenses)} sub={monthLabel} sparkData={[50,45,60,40,55,48,totalExpenses/1000||0]} color="#f87171"/>
-              <KpiCard label="Neto" value={fmtS(totalNet)} sub="ingreso - gastos" sparkData={[20,30,15,40,25,45,totalNet/1000||0]} color={totalNet>=0?'#22d3a5':'#f87171'}/>
-              <KpiCard label="Margen neto" value={`${margin}%`} sub="rentabilidad" sparkData={[18,22,15,28,20,32,margin||0]} color="#818cf8"/>
-            </div>
-
-            <div style={{display:'grid',gridTemplateColumns:'1fr 300px',gap:16,alignItems:'start'}}>
-              <div>
-                <div className="card">
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
-                    <div className="slabel" style={{marginBottom:0}}>P&L por empresa — {monthLabel}</div>
-                    <div style={{display:'flex',gap:14,fontSize:11,color:'#3d5070'}}>
-                      <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:8,height:8,borderRadius:2,background:'#22d3a5',display:'inline-block'}}/>Ingresos</span>
-                      <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:8,height:8,borderRadius:2,background:'#f87171',display:'inline-block'}}/>Gastos</span>
-                    </div>
-                  </div>
-                  {companies.filter(c=>c.active).map(c=>{
-                    const s=syncData?.companies?.find(x=>x.companyId===c.id);
-                    const inc=s?.pl?.income||0, exp=s?.pl?.expenses||0;
-                    const maxV=Math.max(...(syncData?.companies||[]).flatMap(x=>[x.pl?.income||0,x.pl?.expenses||0]),1);
-                    return <div key={c.id} className="tr">
-                      <div style={{width:8,height:8,borderRadius:'50%',background:c.color,flexShrink:0}}/>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:500,color:'#e8edf8',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name.replace(' LLC','').replace(' PA','').replace(' and Consulting','')}</div>
-                        <div style={{display:'flex',gap:6,marginTop:4}}>
-                          <div style={{flex:1,height:4,background:'#1a2840',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',borderRadius:2,background:'#22d3a5',width:`${(inc/maxV)*100}%`,transition:'width .5s'}}/></div>
-                          <div style={{flex:1,height:4,background:'#1a2840',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',borderRadius:2,background:'#f87171',width:`${(exp/maxV)*100}%`,transition:'width .5s'}}/></div>
-                        </div>
-                      </div>
-                      <div style={{textAlign:'right',flexShrink:0}}>
-                        <div style={{fontSize:13,fontWeight:600,color:'#22d3a5'}}>{fmtS(inc)}</div>
-                        <div style={{fontSize:11,color:'#f87171'}}>-{fmtS(exp)}</div>
-                      </div>
-                      {c.connected?<span className="bs">QB ✓</span>:<button onClick={()=>window.open(`/api/qb/connect?company=${c.id}`,'_blank')} className="btn-g" style={{fontSize:11,padding:'3px 8px'}}>Conectar</button>}
-                    </div>;
-                  })}
-                </div>
-
-                <div className="card">
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-                    <div className="slabel" style={{marginBottom:0}}>Análisis Claude AI</div>
-                    <div style={{display:'flex',gap:6}}>
-                      <button onClick={()=>runAnalysis('weekly')} disabled={loading} className="btn-g" style={{fontSize:12,padding:'6px 12px'}}>{loading&&analysisType==='weekly'?<Spin size={11}/>:'📊'} Semanal</button>
-                      <button onClick={()=>runAnalysis('monthly')} disabled={loading} className="btn-p" style={{fontSize:12,padding:'6px 12px'}}>{loading&&analysisType==='monthly'?<Spin size={11} color="#0d1526"/>:'📋'} Cierre</button>
-                    </div>
-                  </div>
-                  {loading&&(analysisType==='weekly'||analysisType==='monthly')&&<div style={{display:'flex',gap:10,alignItems:'center',padding:'20px 0',color:'#7c8db5',fontSize:13}}><Spin/> Claude analizando…</div>}
-                  {analysis&&!loading&&<AnalysisResult result={analysis} type={analysisType}/>}
-                  {!analysis&&!loading&&<div style={{textAlign:'center',padding:'20px 0',color:'#3d5070',fontSize:13}}>Sincroniza QB y genera un reporte para ver el análisis</div>}
-                </div>
-              </div>
-
-              <div>
-                <div className="card" style={{borderTop:'3px solid #22d3a5'}}>
-                  <div className="slabel">Meta: $20k ingreso pasivo</div>
-                  <div style={{textAlign:'center',padding:'8px 0 14px'}}>
-                    <div style={{fontSize:40,fontWeight:800,color:'#22d3a5',letterSpacing:'-2px'}}>$0</div>
-                    <div style={{fontSize:11,color:'#3d5070',marginTop:2}}>de $20,000 / mes</div>
-                    <div style={{margin:'12px 0',height:8,background:'#0d1526',borderRadius:4,overflow:'hidden'}}>
-                      <div style={{height:'100%',borderRadius:4,background:'linear-gradient(90deg,#22d3a5,#818cf8)',width:'0%'}}/>
-                    </div>
-                    <div style={{fontSize:11,color:'#3d5070'}}>0% — agrega propiedades en Personal</div>
-                  </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
-                    <div style={{background:'#0d1526',borderRadius:8,padding:'10px',textAlign:'center'}}>
-                      <div style={{fontSize:10,color:'#3d5070',marginBottom:2}}>Propiedades</div>
-                      <div style={{fontSize:15,fontWeight:700,color:'#22d3a5'}}>$0/mes</div>
-                    </div>
-                    <div style={{background:'#0d1526',borderRadius:8,padding:'10px',textAlign:'center'}}>
-                      <div style={{fontSize:10,color:'#3d5070',marginBottom:2}}>Empresas</div>
-                      <div style={{fontSize:15,fontWeight:700,color:'#818cf8'}}>$0/mes</div>
-                    </div>
-                  </div>
-                  <button onClick={()=>setView('personal')} className="btn-g" style={{width:'100%',justifyContent:'center',fontSize:12}}>Gestionar propiedades →</button>
-                </div>
-
-                <div className="card">
-                  <div className="slabel">Estado QuickBooks</div>
-                  {companies.filter(c=>c.active).map(c=>(
-                    <div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:'1px solid #1a2840'}}>
-                      <div style={{width:7,height:7,borderRadius:'50%',background:c.color,flexShrink:0}}/>
-                      <div style={{flex:1,fontSize:12,color:'#c8d4f0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name.replace(' LLC','').replace(' PA','').replace(' and Consulting','')}</div>
-                      {c.connected?<span className="bs">✓</span>:<button onClick={()=>window.open(`/api/qb/connect?company=${c.id}`,'_blank')} className="btn-g" style={{fontSize:11,padding:'3px 8px'}}>Conectar</button>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>}
-
-          {view==='dashboard'&&<YearOverview currentYear={parseInt(selY)} connectedCount={connectedCount}/>}
-
-          {/* EMPRESAS */}
-          {view==='empresas'&&<div className="fade-in">
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:14}}>
-              {companies.filter(c=>c.active).map(c=>{
-                const s=syncData?.companies?.find(x=>x.companyId===c.id);
-                return <div key={c.id} className="card" style={{borderTop:`3px solid ${c.color}`,marginBottom:0}}>
-                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
-                    <div style={{width:10,height:10,borderRadius:'50%',background:c.color,flexShrink:0}}/>
-                    <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14,color:'#e8edf8'}}>{c.name}</div><div style={{fontSize:11,color:'#3d5070'}}>{c.alias}</div></div>
-                    {c.connected?<span className="bs">QB ✓</span>:<span className="bm">Sin conectar</span>}
-                  </div>
-                  {s?<div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:12}}>
-                    <div style={{background:'#0d1526',borderRadius:8,padding:'10px',textAlign:'center'}}><div style={{fontSize:10,color:'#3d5070'}}>Ingresos</div><div style={{fontSize:14,fontWeight:700,color:'#22d3a5'}}>{fmtS(s.pl?.income)}</div></div>
-                    <div style={{background:'#0d1526',borderRadius:8,padding:'10px',textAlign:'center'}}><div style={{fontSize:10,color:'#3d5070'}}>Gastos</div><div style={{fontSize:14,fontWeight:700,color:'#f87171'}}>{fmtS(s.pl?.expenses)}</div></div>
-                    <div style={{background:'#0d1526',borderRadius:8,padding:'10px',textAlign:'center'}}><div style={{fontSize:10,color:'#3d5070'}}>Neto</div><div style={{fontSize:14,fontWeight:700,color:(s.pl?.net||0)>=0?'#22d3a5':'#f87171'}}>{fmtS(s.pl?.net)}</div></div>
-                  </div>:<div style={{fontSize:12,color:'#3d5070',textAlign:'center',padding:'14px 0',marginBottom:12}}>Sin datos — sincroniza QB</div>}
-                  <div style={{display:'flex',gap:6}}>
-                    <button onClick={()=>window.open(`/api/qb/connect?company=${c.id}`,'_blank')} className="btn-g" style={{flex:1,justifyContent:'center',fontSize:12}}>{c.connected?'🔄 Reconectar':'🔗 Conectar QB'}</button>
-                    {s&&<button onClick={()=>{setAnalysisType('company');runAnalysis('company',{company:c.name,transactions:s.transactions,period:selectedMonth,plData:s.pl});setView('dashboard');}} disabled={loading} className="btn-p" style={{flex:1,justifyContent:'center',fontSize:12}}>Analizar IA</button>}
-                  </div>
-                </div>;
-              })}
-            </div>
-          </div>}
-
-          {/* PERSONAL */}
-          {view==='personal'&&<div className="fade-in">
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
-              <div className="card">
-                <div className="slabel">Exportar de tu banco</div>
-                {[{bank:'Chase',steps:'Account → Download Activity → CSV'},{bank:'American Express',steps:'Account Services → Download → CSV'},{bank:'Bank of America',steps:'Accounts → Download → Date Range → CSV'},{bank:'Wells Fargo',steps:'Accounts → Download Activity → CSV'},{bank:'Capital One',steps:'Transactions → Download → CSV'}].map(b=>(
-                  <div key={b.bank} className="tr" style={{fontSize:12}}>
-                    <div style={{fontWeight:600,color:'#e8edf8',width:130,flexShrink:0}}>{b.bank}</div>
-                    <div style={{color:'#7c8db5'}}>{b.steps}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="card">
-                <div className="slabel">Analizar movimientos</div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
-                  <div><label style={{fontSize:11,color:'#3d5070',display:'block',marginBottom:3}}>PERSONA</label><select value={csvPerson} onChange={e=>setCsvPerson(e.target.value)} className="inp"><option>Jorge</option><option>Paola</option><option>Ambos</option></select></div>
-                  <div><label style={{fontSize:11,color:'#3d5070',display:'block',marginBottom:3}}>BANCO</label><select value={csvSource} onChange={e=>setCsvSource(e.target.value)} className="inp">{['Chase','Amex','BofA','Wells Fargo','Capital One','Otro'].map(b=><option key={b}>{b}</option>)}</select></div>
-                </div>
-                <textarea value={csvContent} onChange={e=>setCsvContent(e.target.value)} placeholder="Pega aquí el contenido CSV del estado de cuenta..." className="inp" style={{minHeight:130,resize:'vertical',marginBottom:10}}/>
-                <button onClick={()=>runAnalysis('csv',{csvContent,source:csvSource,person:csvPerson,month:selectedMonth})} disabled={loading||!csvContent.trim()} className="btn-p" style={{width:'100%',justifyContent:'center'}}>
-                  {loading&&analysisType==='csv'?<><Spin size={12} color="#0d1526"/> Analizando…</>:'🤖 Analizar con Claude'}
-                </button>
-              </div>
-            </div>
-            {analysis&&analysisType==='csv'&&<div className="card"><AnalysisResult result={analysis} type="csv"/></div>}
-          </div>}
-
-          {/* REPORTES */}
-          {view==='reportes'&&<div className="fade-in">
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:14,marginBottom:18}}>
-              {[{id:'weekly',icon:'📊',title:'Reporte semanal',desc:'Resumen de transacciones, alertas y checklist. Reemplaza el bookkeeper de $200/mes.'},{id:'monthly',icon:'📋',title:'Cierre mensual',desc:'P&L completo, entradas de ajuste, documentos para el contador.'},{id:'personal',icon:'💳',title:'Gastos personales',desc:'Análisis de tarjetas de Jorge y Paola. Qué es deducible.'}].map(r=>(
-                <div key={r.id} className="card" style={{display:'flex',flexDirection:'column',gap:12,marginBottom:0}}>
-                  <div style={{fontSize:30}}>{r.icon}</div>
-                  <div><div style={{fontWeight:600,fontSize:14,color:'#e8edf8',marginBottom:4}}>{r.title}</div><div style={{fontSize:13,color:'#7c8db5',lineHeight:1.5}}>{r.desc}</div></div>
-                  <button onClick={()=>runAnalysis(r.id)} disabled={loading} className="btn-p" style={{marginTop:'auto',justifyContent:'center'}}>{loading&&analysisType===r.id?<Spin size={12} color="#0d1526"/>:'Generar con Claude'}</button>
-                </div>
-              ))}
-            </div>
-            {loading&&<div style={{display:'flex',gap:10,alignItems:'center',padding:'16px 0',color:'#7c8db5',fontSize:13}}><Spin/> Generando reporte…</div>}
-            {analysis&&<div className="card"><AnalysisResult result={analysis} type={analysisType}/></div>}
-          </div>}
-
-          {/* ASESOR */}
-          {view==='asesor'&&<div className="fade-in" style={{maxWidth:760}}>
-            <div className="card" style={{marginBottom:10}}>
-              <div className="slabel">Preguntas frecuentes</div>
-              <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                {['¿Cuándo llego a $20k de ingreso pasivo?','¿Cuánto me pago de las empresas este mes?','¿Qué propiedad compro primero?','Dame el reporte semanal completo','Cierre mensual con entradas contables','¿Cómo optimizo mis impuestos en Florida?'].map(s=>(
-                  <button key={s} onClick={()=>setChatInput(s)} className="btn-g" style={{fontSize:12,padding:'5px 12px'}}>{s}</button>
-                ))}
-              </div>
-            </div>
-            <div className="card">
-              <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14,maxHeight:420,overflowY:'auto',padding:'2px 0'}}>
-                {chatHistory.length===0&&<div style={{textAlign:'center',padding:'32px 0',color:'#3d5070',fontSize:13}}>
-                  <div style={{fontSize:32,marginBottom:8}}>◎</div>
-                  Tu asesor financiero AI está listo.<br/>Meta: $20,000/mes de ingreso pasivo.
-                </div>}
-                {chatHistory.map((m,i)=><div key={i} className={m.role==='user'?'chat-u':'chat-a'}>{m.content}</div>)}
-                {chatLoading&&<div style={{display:'flex',gap:8,alignItems:'center',color:'#7c8db5',fontSize:13,padding:'4px 0'}}><Spin size={12}/> El asesor está pensando…</div>}
-                <div ref={chatEndRef}/>
-              </div>
-              <div style={{display:'flex',gap:8}}>
-                <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendChat()} placeholder="Pregunta sobre tus finanzas, propiedades, impuestos..." className="inp" style={{flex:1}}/>
-                <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()} className="btn-p">
-                  {chatLoading?<Spin size={12} color="#0d1526"/>:'Enviar →'}
-                </button>
-              </div>
-            </div>
-          </div>}
-
+        <div style={{ display:'flex',gap:4,marginBottom:24,flexWrap:'wrap' }}>
+          {tabs.map(t=><div key={t.id} onClick={()=>{setActiveTab(t.id);if(t.id==='asesor'&&!analysis)runAnalysis();}} style={{ padding:'8px 18px',borderRadius:8,fontSize:13,fontWeight:activeTab===t.id?600:400,color:activeTab===t.id?C.accent:C.muted,background:activeTab===t.id?C.accentDim:'transparent',cursor:'pointer',border:activeTab===t.id?'0.5px solid '+C.accent+'33':'0.5px solid transparent' }}>{t.l}</div>)}
         </div>
-      </main>
+
+        {/* DASHBOARD */}
+        {activeTab==='dashboard'&&vd&&(<div className="fade-up">
+          <div style={{ display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:12,marginBottom:28 }}>
+            <MetricCard label="Ingresos" value={fmt(vd.totalIncome)} color={C.green} />
+            <MetricCard label="Gastos" value={fmt(vd.totalExpenses)} color={C.red} sub={vd.totalExpenses>vd.totalIncome?'En pérdida':'Controlado'} delay={60} />
+            <MetricCard label="Resultado neto" value={fmt(vd.net)} color={vd.net>=0?C.green:C.red} sub={vd.totalIncome>0?'Margen: '+(vd.margin||Math.round((vd.net/vd.totalIncome)*100))+'%':''} delay={120} />
+            <MetricCard label={isP?'Archivos':'Categorías'} value={isP?(personalData?.uploadCount||0):(vd.categories?.length||0)} sub={isP?'estados de cuenta':'de gasto'} delay={180} />
+          </div>
+          {isP&&personalData?.global&&(<div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:24 }}>
+            <div style={{ background:C.surface,borderRadius:10,padding:'14px 16px',border:'0.5px solid '+C.border }}><div style={{ fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:4 }}>Empresas (neto)</div><div style={{ fontSize:20,fontWeight:600,color:personalData.global.business.net>=0?C.green:C.red }}>{fmt(personalData.global.business.net)}</div></div>
+            <div style={{ background:C.surface,borderRadius:10,padding:'14px 16px',border:'0.5px solid '+C.border }}><div style={{ fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:4 }}>Personal (neto)</div><div style={{ fontSize:20,fontWeight:600,color:personalData.global.personal.net>=0?C.green:C.red }}>{fmt(personalData.global.personal.net)}</div></div>
+            <div style={{ background:C.surface,borderRadius:10,padding:'14px 16px',border:'0.5px solid '+C.border }}><div style={{ fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:4 }}>Total global</div><div style={{ fontSize:20,fontWeight:600,color:personalData.global.total.net>=0?C.green:C.red }}>{fmt(personalData.global.total.net)}</div></div>
+          </div>)}
+          <div style={{ display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:20,marginBottom:28 }}>
+            <div style={{ background:C.surface,borderRadius:12,border:'0.5px solid '+C.border,padding:'18px 20px' }}>
+              <div style={{ fontSize:13,fontWeight:600,marginBottom:4 }}>{isP?'Ingresos vs gastos personales':'Ingresos vs gastos'}</div>
+              <div style={{ fontSize:11,color:C.muted,marginBottom:16 }}>Evolución mensual {year}</div>
+              <div style={{ height:260 }}><ResponsiveContainer width="100%" height="100%"><BarChart data={vd.monthlyChart} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} /><XAxis dataKey="month" tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false} /><YAxis tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false} tickFormatter={v=>fmt(v)} width={60} /><Tooltip content={<ChartTooltip />} /><Bar dataKey="income" name="Ingresos" fill={C.green} radius={[3,3,0,0]} maxBarSize={24} /><Bar dataKey="expenses" name="Gastos" fill={C.red} radius={[3,3,0,0]} maxBarSize={24} /></BarChart></ResponsiveContainer></div>
+              <div style={{ display:'flex',gap:20,marginTop:10,justifyContent:'center' }}><span style={{ display:'flex',alignItems:'center',gap:6,fontSize:12,color:C.muted }}><span style={{ width:10,height:10,borderRadius:2,background:C.green }} />Ingresos</span><span style={{ display:'flex',alignItems:'center',gap:6,fontSize:12,color:C.muted }}><span style={{ width:10,height:10,borderRadius:2,background:C.red }} />Gastos</span></div>
+            </div>
+            <div style={{ background:C.surface,borderRadius:12,border:'0.5px solid '+C.border,padding:'18px 20px' }}>
+              <div style={{ fontSize:13,fontWeight:600,marginBottom:4 }}>Distribución de gastos</div>
+              <div style={{ fontSize:11,color:C.muted,marginBottom:8 }}>Por categoría</div>
+              {pieD.length>0?(<><div style={{ height:180 }}><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieD} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" stroke="none">{pieD.map((e,i)=><Cell key={i} fill={e.color} />)}</Pie></PieChart></ResponsiveContainer></div><div style={{ display:'flex',flexDirection:'column',gap:4 }}>{pieD.slice(0,5).map((p,i)=><div key={i} style={{ display:'flex',alignItems:'center',gap:6,fontSize:11,color:C.muted }}><span style={{ width:8,height:8,borderRadius:2,background:p.color }} />{p.name}: {fmt(p.value)}</div>)}</div></>):(<div style={{ padding:40,textAlign:'center',color:C.dim }}>{isP?'Sube un CSV para ver datos':'Sin datos'}</div>)}
+            </div>
+          </div>
+          {vd.net<0&&(<div style={{ padding:'14px 18px',borderRadius:12,background:C.redDim,border:'0.5px solid '+C.red+'33',display:'flex',alignItems:'center',gap:12 }}><span style={{ fontSize:18 }}>!</span><div><div style={{ fontSize:13,fontWeight:600,color:C.red }}>{isP?'Gastos personales superan ingresos':'Operando en pérdida'}: {fmt(vd.net)}</div></div></div>)}
+          {data?.perCompany&&(<div style={{ marginTop:28 }}><div style={{ fontSize:14,fontWeight:600,marginBottom:12 }}>Rendimiento por empresa</div><div style={{ display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:12 }}>{data.perCompany.filter(c=>c.totalIncome>0||c.totalExpenses>0).map(co=>(<div key={co.id} onClick={()=>sw(co.id)} style={{ background:C.surface,borderRadius:12,border:'0.5px solid '+C.border,padding:'16px 18px',cursor:'pointer' }}><div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:10 }}><span style={{ width:10,height:10,borderRadius:'50%',background:co.color }} /><span style={{ fontSize:13,fontWeight:600 }}>{co.name}</span></div><div style={{ display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4 }}><span style={{ color:C.muted }}>Ingresos</span><span style={{ color:C.green,fontWeight:500 }}>{fmt(co.totalIncome)}</span></div><div style={{ display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4 }}><span style={{ color:C.muted }}>Gastos</span><span style={{ color:C.red,fontWeight:500 }}>{fmt(co.totalExpenses)}</span></div><div style={{ display:'flex',justifyContent:'space-between',fontSize:13,fontWeight:600,paddingTop:6,borderTop:'0.5px solid '+C.border }}><span>Neto</span><span style={{ color:co.net>=0?C.green:C.red }}>{fmt(co.net)}</span></div></div>))}</div></div>)}
+        </div>)}
+
+        {/* GASTOS */}
+        {activeTab==='gastos'&&vd&&(<div className="fade-up">
+          <div style={{ display:'flex',alignItems:'baseline',gap:10,marginBottom:16 }}><span style={{ fontSize:15,fontWeight:600 }}>Categorías de gasto {isP&&'(personal)'}</span><span style={{ fontSize:11,color:C.dim }}>Clic para ver cada transacción</span></div>
+          <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:24 }}>
+            <MetricCard label="Total gastos" value={fmt(vd.totalExpenses)} color={C.red} />
+            <MetricCard label="Categorías" value={cats.length} sub="con transacciones" delay={60} />
+            <MetricCard label="Transacciones" value={cats.reduce((s,c)=>s+(c.count||0),0)} sub="en el periodo" delay={120} />
+          </div>
+          {cats.map((cat,i)=><CategoryRow key={cat.name} cat={cat} index={i} isOpen={openCat===cat.name} onToggle={()=>{setOpenCat(openCat===cat.name?null:cat.name);loadCatTxns(cat.name);}} />)}
+          {cats.length===0&&<div style={{ textAlign:'center',padding:40,color:C.muted }}>{isP?'Sube un CSV en "Subir archivo".':'Sincroniza QuickBooks.'}</div>}
+        </div>)}
+
+        {/* UPLOAD (Personal) */}
+        {activeTab==='upload'&&isP&&(<div className="fade-up">
+          <div style={{ fontSize:15,fontWeight:600,marginBottom:4 }}>Subir estado de cuenta</div>
+          <div style={{ fontSize:12,color:C.muted,marginBottom:20,lineHeight:1.6 }}>Sube el CSV de tu banco o tarjeta. Soporta Chase, BofA, Amex, Wells Fargo y genérico. Claude AI categoriza automáticamente.</div>
+          <div style={{ background:C.surface,borderRadius:12,border:'1px dashed '+C.border,padding:'32px 24px',textAlign:'center',marginBottom:20 }}>
+            <div style={{ fontSize:36,marginBottom:8,opacity:0.5 }}>📄</div>
+            <div style={{ fontSize:14,fontWeight:500,marginBottom:12 }}>Arrastra o selecciona tu archivo</div>
+            <div style={{ fontSize:12,color:C.muted,marginBottom:16 }}>CSV, TSV — estados de cuenta bancarios</div>
+            <div style={{ display:'flex',alignItems:'center',gap:10,justifyContent:'center',marginBottom:14 }}>
+              <input value={uploadSource} onChange={e=>setUploadSource(e.target.value)} placeholder="Nombre fuente (ej: Chase Sapphire)" style={{ padding:'10px 14px',borderRadius:8,border:'0.5px solid '+C.border,background:C.bg,color:C.text,fontSize:13,width:300,outline:'none' }} />
+            </div>
+            <input ref={fileRef} type="file" accept=".csv,.tsv,.txt" onChange={handleUpload} style={{ display:'none' }} />
+            <div onClick={()=>fileRef.current?.click()} style={{ display:'inline-flex',alignItems:'center',gap:8,padding:'10px 24px',borderRadius:8,background:C.accentDim,color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer',border:'0.5px solid '+C.accent+'33' }}>{uploading?'⟳ Procesando...':'📁 Seleccionar archivo'}</div>
+          </div>
+          {uploadResult&&!uploadResult.error&&(<div style={{ background:C.surface,borderRadius:12,border:'0.5px solid '+C.green+'33',padding:'18px 20px',marginBottom:20 }}>
+            <div style={{ fontSize:14,fontWeight:600,color:C.green,marginBottom:10 }}>✓ Procesado</div>
+            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12 }}>
+              <div><div style={{ fontSize:11,color:C.muted }}>Formato</div><div style={{ fontSize:13,fontWeight:500,textTransform:'capitalize' }}>{uploadResult.format}</div></div>
+              <div><div style={{ fontSize:11,color:C.muted }}>Transacciones</div><div style={{ fontSize:13,fontWeight:500 }}>{uploadResult.totalTransactions}</div></div>
+              <div><div style={{ fontSize:11,color:C.muted }}>Gastos</div><div style={{ fontSize:13,fontWeight:500,color:C.red }}>{fmt(uploadResult.totalExpenses)}</div></div>
+              <div><div style={{ fontSize:11,color:C.muted }}>Ingresos</div><div style={{ fontSize:13,fontWeight:500,color:C.green }}>{fmt(uploadResult.totalIncome)}</div></div>
+            </div>
+            {uploadResult.categories?.slice(0,5).map((cat,i)=>(<div key={i} style={{ display:'flex',alignItems:'center',gap:8,padding:'4px 0',fontSize:12,marginTop:i===0?8:0 }}><span style={{ width:8,height:8,borderRadius:2,background:CAT_COLORS[i] }} /><span style={{ flex:1 }}>{cat.name}</span><span style={{ fontWeight:500,color:C.red }}>{fmt(cat.total)}</span><span style={{ color:C.muted }}>{cat.pct}%</span></div>))}
+            {uploadResult.aiCategorized&&<div style={{ marginTop:10,fontSize:12,color:C.green }}>✓ Claude AI categorizó las transacciones</div>}
+          </div>)}
+          {uploadResult?.error&&<div style={{ padding:'14px 18px',borderRadius:12,background:C.redDim,border:'0.5px solid '+C.red+'33',fontSize:13,color:C.red }}>Error: {uploadResult.error}</div>}
+          {personalData?.uploads?.length>0&&(<div><div style={{ fontSize:14,fontWeight:600,marginBottom:10 }}>Archivos cargados</div>{personalData.uploads.map((up,i)=>(<div key={i} style={{ display:'flex',alignItems:'center',gap:12,padding:'12px 14px',background:C.surface,borderRadius:10,border:'0.5px solid '+C.border,marginBottom:6 }}><span style={{ fontSize:20,opacity:0.5 }}>📄</span><div style={{ flex:1 }}><div style={{ fontSize:13,fontWeight:500 }}>{up.source_name||up.filename}</div><div style={{ fontSize:11,color:C.muted }}>{up.total_transactions} txns · {up.period||''}</div></div><div style={{ textAlign:'right' }}><div style={{ fontSize:13,fontWeight:500,color:C.red }}>{fmt(up.total_expenses)}</div><div style={{ fontSize:11,color:C.muted }}>{new Date(up.uploaded_at).toLocaleDateString('es-ES')}</div></div><span style={{ fontSize:11,padding:'3px 8px',borderRadius:4,background:up.status==='processed'?C.greenDim:C.amberDim,color:up.status==='processed'?C.green:C.amber }}>{up.status==='processed'?'OK':'...'}</span></div>))}</div>)}
+          <div style={{ marginTop:20,padding:'14px 18px',borderRadius:12,background:C.surface,border:'0.5px solid '+C.border,fontSize:12,color:C.muted,lineHeight:1.6 }}><strong style={{ color:C.text }}>¿Cómo exportar tu CSV?</strong><br /><strong>Chase:</strong> Actividad → Descargar → CSV<br /><strong>BofA:</strong> Cuentas → Descargar → CSV<br /><strong>Amex:</strong> Statements → Download → CSV<br /><strong>Wells Fargo:</strong> Account Activity → Download → Comma Delimited</div>
+        </div>)}
+
+        {/* AI ADVISOR */}
+        {activeTab==='asesor'&&!isP&&(<div className="fade-up">
+          <div style={{ display:'flex',alignItems:'center',gap:12,marginBottom:20 }}>
+            <div style={{ width:36,height:36,borderRadius:'50%',background:C.accentDim,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:700,color:C.accent }}>AI</div>
+            <div><div style={{ fontSize:15,fontWeight:600 }}>Asesor financiero — Fortis</div><div style={{ fontSize:12,color:C.muted }}>Análisis de QuickBooks</div></div>
+            {!analyzing&&<div onClick={runAnalysis} style={{ marginLeft:'auto',fontSize:12,padding:'6px 14px',borderRadius:8,background:C.accentDim,color:C.accent,cursor:'pointer',fontWeight:500,border:'0.5px solid '+C.accent+'33' }}>Actualizar</div>}
+          </div>
+          {analyzing&&<div style={{ textAlign:'center',padding:40,color:C.muted }}>Analizando con Claude AI...</div>}
+          {analysis&&!analyzing&&(<>
+            {analysis.proyeccion&&(<div style={{ background:C.surface,borderRadius:12,border:'0.5px solid '+C.border,padding:'20px 24px',marginBottom:20,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:20 }}>
+              <div><div style={{ fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:6 }}>Actual</div><div style={{ fontSize:28,fontWeight:700,color:analysis.proyeccion.neto_actual>=0?C.green:C.red }}>{fmt(analysis.proyeccion.neto_actual)}<span style={{ fontSize:14,fontWeight:400,color:C.muted }}>/mes</span></div></div>
+              <div><div style={{ fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:6 }}>Ahorro posible</div><div style={{ fontSize:28,fontWeight:700,color:C.green }}>{fmt(analysis.proyeccion.ahorro_total_posible)}<span style={{ fontSize:14,fontWeight:400,color:C.muted }}>/mes</span></div></div>
+              <div><div style={{ fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:6 }}>Proyectado</div><div style={{ fontSize:28,fontWeight:700,color:C.green }}>+{fmt(analysis.proyeccion.neto_proyectado)}<span style={{ fontSize:14,fontWeight:400,color:C.muted }}>/mes</span></div></div>
+            </div>)}
+            {analysis.diagnostico&&<div style={{ padding:'14px 18px',borderRadius:12,background:C.surface,border:'0.5px solid '+C.border,marginBottom:16,fontSize:13,color:C.muted,lineHeight:1.6 }}>{analysis.diagnostico}</div>}
+            {analysis.insights?.map((ins,i)=><InsightCard key={i} insight={ins} delay={i*80} />)}
+            {analysis.proyeccion?.mejora_anual>0&&(<div style={{ marginTop:20,padding:'16px 20px',borderRadius:12,background:C.accentDim,border:'0.5px solid '+C.accent+'33' }}><div style={{ fontSize:13,fontWeight:600,color:C.accent,marginBottom:4 }}>Impacto anual</div><div style={{ fontSize:24,fontWeight:700,color:C.accent }}>{fmt(analysis.proyeccion.mejora_anual)}<span style={{ fontSize:13,fontWeight:400,color:C.muted }}> mejora anual</span></div></div>)}
+          </>)}
+        </div>)}
+
+        {/* CHAT */}
+        {activeTab==='chat'&&(<div className="fade-up" style={{ display:'flex',flexDirection:'column',height:'calc(100vh - 180px)' }}>
+          <div style={{ flex:1,overflow:'auto',marginBottom:16 }}>
+            {chatHistory.length===0&&(<div style={{ textAlign:'center',padding:'60px 20px',color:C.muted }}><div style={{ fontSize:28,marginBottom:8 }}>💬</div><div style={{ fontSize:14,fontWeight:500,marginBottom:4 }}>Chat con Fortis</div><div style={{ fontSize:12 }}>Pregunta sobre tus finanzas{isP?' personales':''}.</div><div style={{ display:'flex',flexWrap:'wrap',gap:8,justifyContent:'center',marginTop:20 }}>{(isP?['¿En qué gasto más?','¿Qué suscripciones cancelar?','¿Algún gasto deducible?','¿Cómo reducir gastos?']:['¿En qué me gasto más?','¿Cómo reducir gastos?','¿Qué empresa es más rentable?','¿Los contractors se justifican?']).map(q=><div key={q} onClick={()=>setChatMsg(q)} style={{ fontSize:12,padding:'6px 12px',borderRadius:8,background:C.surface,border:'0.5px solid '+C.border,cursor:'pointer',color:C.muted }}>{q}</div>)}</div></div>)}
+            {chatHistory.map((m,i)=>(<div key={i} style={{ display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start',marginBottom:10 }}><div style={{ maxWidth:'80%',padding:'10px 14px',borderRadius:12,fontSize:13,lineHeight:1.6,background:m.role==='user'?C.accentDim:C.surface,border:m.role==='ai'?'0.5px solid '+C.border:'none',color:m.role==='user'?C.accent:C.text,whiteSpace:'pre-wrap' }}>{m.text}</div></div>))}
+            {chatLoading&&<div style={{ padding:10,color:C.muted,fontSize:13 }}>Fortis está pensando...</div>}
+          </div>
+          <div style={{ display:'flex',gap:8 }}>
+            <input value={chatMsg} onChange={e=>setChatMsg(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendChat()} placeholder="Pregunta sobre tus finanzas..." style={{ flex:1,padding:'12px 16px',borderRadius:10,border:'0.5px solid '+C.border,background:C.surface,color:C.text,fontSize:13,outline:'none' }} />
+            <button onClick={sendChat} disabled={chatLoading||!chatMsg.trim()} style={{ padding:'12px 20px',borderRadius:10,background:C.accentDim,color:C.accent,border:'0.5px solid '+C.accent+'33',fontSize:13,fontWeight:600,cursor:'pointer' }}>Enviar</button>
+          </div>
+        </div>)}
+
+        {!vd&&<div style={{ textAlign:'center',padding:60,color:C.muted }}>Cargando...</div>}
+      </div>
     </div>
-  </>);
+  );
 }
-

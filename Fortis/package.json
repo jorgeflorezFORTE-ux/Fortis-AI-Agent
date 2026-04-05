@@ -1,24 +1,27 @@
 {
-  "name": "fortis",
+  "name": "fortis-2",
   "version": "1.0.0",
+  "description": "Asesor financiero AI para JP Legacy Group — conectado a QuickBooks",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "sync": "node scripts/sync-qb.js"
   },
   "dependencies": {
-    "next": "14.1.0",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "@anthropic-ai/sdk": "^0.20.0",
-    "axios": "^1.6.7",
-    "date-fns": "^3.3.1",
-    "recharts": "^2.12.0"
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "recharts": "^2.12.0",
+    "intuit-oauth": "^4.0.0",
+    "node-quickbooks": "^2.0.0",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "better-sqlite3": "^11.0.0",
+    "date-fns": "^3.6.0",
+    "cron": "^3.1.0"
   },
   "devDependencies": {
-    "eslint": "^8",
-    "eslint-config-next": "14.1.0"
+    "dotenv": "^16.4.0"
   }
 }
