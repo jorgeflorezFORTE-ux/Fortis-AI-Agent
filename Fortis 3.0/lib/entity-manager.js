@@ -21,7 +21,7 @@ function initSeeds() {
    ['6678','jp-media','Chase Checking 6678','checking','Chase'],['7207','jp-media','Chase Checking 7207','checking','Chase'],
    ['2797','paola-pa','Chase Checking 2797','checking','Chase'],['1887','reborn','Chase Checking 1887','checking','Chase'],
    ['6152','reborn','Chase CD 6152','cd','Chase'],['3083','reborn','Chase CD 3083','cd','Chase'],
-   ['8896','vau-nutrition','Chase Checking 8896','checking','Chase'],['9710','vau-nutrition','Chase Credit Card 9710','credit','Chase'],
+   ['8896','vau-nutrition','Chase Checking 8896','checking','Chase'],['9710','vau-nutrition','Chase Credit Card 9710','credit','Chase'],['9728','vau-nutrition','Chase Credit Card 9728','credit','Chase'],
    ['5659','personal-jorge','Chase Checking 5659','checking','Chase'],['7448','personal-jorge','Chase Credit Card 7448','credit','Chase'],
   ].forEach(x => a.run(...x));
 }
