@@ -1,11 +1,11 @@
 const { getTransactions } = require('./db');
 const { validateTransaction, RULES } = require('./business-rules');
 
-function reconcileMonth({ companyId, year, month }) {
+async function reconcileMonth({ companyId, year, month }) {
   const sd = `${year}-${String(month).padStart(2, '0')}-01`;
   const em = month === 12 ? 1 : month + 1, ey = month === 12 ? year + 1 : year;
   const ed = `${ey}-${String(em).padStart(2, '0')}-01`;
-  const txns = getTransactions({ companyId: companyId === 'all' ? null : companyId, startDate: sd, endDate: ed, limit: 1000 });
+  const txns = await getTransactions({ companyId: companyId === 'all' ? null : companyId, startDate: sd, endDate: ed, limit: 1000 });
   const bank = txns.filter(t => t.reference?.startsWith('UP-'));
   const qb = txns.filter(t => t.source === 'quickbooks' || (!t.reference?.startsWith('UP-') && t.source !== 'bank'));
   const violations = [], matched = [];
@@ -39,9 +39,11 @@ function reconcileMonth({ companyId, year, month }) {
   };
 }
 
-function reconcileAll({ year, month }) {
+async function reconcileAll({ year, month }) {
   const results = {};
-  Object.keys(RULES).forEach(id => { results[id] = reconcileMonth({ companyId: id, year, month }); });
+  for (const id of Object.keys(RULES)) {
+    results[id] = await reconcileMonth({ companyId: id, year, month });
+  }
   const tv = Object.values(results).reduce((s, r) => s + r.violationCount, 0);
   const td = Object.values(results).reduce((s, r) => s + r.duplicateCount, 0);
   return { period: `${year}-${String(month).padStart(2, '0')}`, globalSummary: { totalViolations: tv, totalDuplicates: td, status: tv === 0 && td === 0 ? 'clean' : tv > 10 ? 'critical' : 'review' }, perCompany: results };

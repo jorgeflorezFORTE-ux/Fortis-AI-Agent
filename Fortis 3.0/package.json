@@ -2,9 +2,18 @@
   "name": "fortis-3",
   "version": "3.0.0",
   "private": true,
-  "scripts": { "dev": "next dev", "build": "next build", "start": "next start" },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
   "dependencies": {
-    "next": "^14.2.0", "react": "^18.3.0", "react-dom": "^18.3.0",
-    "recharts": "^2.12.0", "@anthropic-ai/sdk": "^0.30.0", "better-sqlite3": "^11.0.0"
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@libsql/client": "^0.17.2",
+    "better-sqlite3": "^11.0.0",
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "recharts": "^2.12.0"
   }
 }

@@ -1,7 +1,5 @@
 const { parseBankStatement } = require('../../../lib/csv-parser');
-const { autoRouteFile } = require('../../../lib/entity-manager');
-let autoRouteByContent;
-try { autoRouteByContent = require('../../../lib/entity-manager').autoRouteByContent; } catch(e) {}
+const { autoRouteFile, autoRouteByContent } = require('../../../lib/entity-manager');
 const { upsertMany, savePersonalUpload, updatePersonalUpload } = require('../../../lib/db');
 const { checkDuplicateUpload, deduplicateTransactions } = require('../../../lib/dedup');
 
@@ -18,7 +16,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No se encontraron transacciones' });
 
     // 1. Try auto-route by filename digits
-    let routed = autoRouteFile(filename);
+    let routed = await autoRouteFile(filename);
     let target = null, finalName = sourceName || null, auto = false;
 
     if (routed && routed.entity) {
@@ -28,8 +26,8 @@ export default async function handler(req, res) {
     }
 
     // 2. If filename failed, try inside CSV content
-    if (!target && autoRouteByContent) {
-      const contentRoute = autoRouteByContent(csvContent);
+    if (!target) {
+      const contentRoute = await autoRouteByContent(csvContent);
       if (contentRoute && contentRoute.entity) {
         target = contentRoute.entity;
         finalName = finalName || contentRoute.label;
@@ -56,7 +54,7 @@ export default async function handler(req, res) {
 
     // Duplicate check
     if (!force) {
-      const dupCheck = checkDuplicateUpload(target, filename, csvContent);
+      const dupCheck = await checkDuplicateUpload(target, filename, csvContent);
       if (dupCheck.isDuplicate) {
         return res.status(409).json({
           error: 'Archivo duplicado', duplicate: true,
@@ -66,7 +64,7 @@ export default async function handler(req, res) {
     }
 
     // Dedup transactions
-    const { unique, duplicateCount } = deduplicateTransactions(parsed.transactions, target);
+    const { unique, duplicateCount } = await deduplicateTransactions(parsed.transactions, target);
     if (unique.length === 0) {
       return res.status(409).json({
         error: 'Todas las transacciones ya existen', duplicate: true,
@@ -75,7 +73,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const uid = savePersonalUpload({
+    const uid = await savePersonalUpload({
       accountId: target,
       filename: filename || finalName + '.csv',
       sourceName: finalName,
@@ -95,11 +93,11 @@ export default async function handler(req, res) {
       reference: 'UP-' + uid + '-' + i,
     }));
 
-    const count = upsertMany(txns);
+    const count = await upsertMany(txns);
     const totalIncome = unique.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
     const totalExpenses = unique.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
 
-    updatePersonalUpload(uid, {
+    await updatePersonalUpload(uid, {
       totalTransactions: count,
       totalIncome: Math.round(totalIncome * 100) / 100,
       totalExpenses: Math.round(totalExpenses * 100) / 100,
