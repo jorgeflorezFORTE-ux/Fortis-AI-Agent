@@ -332,6 +332,7 @@ export default function Dashboard(){
               <div style={{background:C.surface,borderRadius:12,border:'0.5px solid '+C.border,padding:'18px 20px'}}>
                 <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Falta para $20K/mes</div>
                 <div style={{fontSize:36,fontWeight:700,color:C.amber,marginBottom:8}}>{fmt(Math.max(0,freedomData.finGoal-freedomData.passiveIncome))}</div>
+                {freedomData.passiveIncome>0&&(<div style={{marginTop:12,padding:'12px 14px',background:C.bg,borderRadius:8}}><div style={{fontSize:11,color:C.dim,textTransform:'uppercase',marginBottom:4}}>Tiempo estimado</div><div style={{fontSize:24,fontWeight:700,color:C.accent}}>{freedomData.passiveIncome>=freedomData.finGoal?'Meta alcanzada':Math.ceil(Math.log(freedomData.finGoal/freedomData.passiveIncome)/Math.log(1+(freedomData.assets?.reduce((s,a)=>s+(a.annual_return_pct||0),0)/(freedomData.assets?.length||1))/100))+' años'}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>Si reinviertes intereses al mismo rendimiento</div></div>)}
                 <div style={{fontSize:12,color:C.muted}}>Tienes {fmt(freedomData.passiveIncome)} de {fmt(freedomData.finGoal)} necesarios</div>
               </div>
             </div>
