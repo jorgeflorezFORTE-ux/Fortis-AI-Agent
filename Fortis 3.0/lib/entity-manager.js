@@ -1,0 +1,92 @@
+const { getDb } = require('./db');
+
+function initSeeds() {
+  const db = getDb();
+  const count = db.prepare('SELECT COUNT(*) as c FROM entities').get().c;
+  if (count > 0) return;
+  const s = db.prepare('INSERT OR IGNORE INTO entities (id,name,short_name,type,category,color,icon,ein,reg_number,description,active,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+  [['real-legacy','Real Legacy LLC','Real Legacy','business','Real Estate','#C8A46E','R','88-3202623','L22000282262','Operación compra/venta propiedades. Brazo operativo de Paola PA.',1,1],
+   ['jp-media','JP Legacy Media and Consulting LLC','JP Legacy Media','business','Marketing','#60A5FA','J','','L23000500491','Ingresos por referidos.',1,2],
+   ['paola-pa','Paola Alexandra Diaz Lozada PA','Paola Diaz PA','business','Comisiones','#A78BFA','P','92-2296944','P23000010864','Recaudadora de comisiones. Transfiere a Real Legacy.',1,3],
+   ['vau-nutrition','VAU Nutrition LLC','VAU Nutrition','business','E-commerce','#2DD4BF','V','','','Venta online de suplementos.',1,4],
+   ['reborn','Reborn Houses LLC','Reborn Houses','business','Inversiones','#F472B6','H','','L23000530638','CDs. Futuras inversiones bienes raíces.',1,5],
+   ['jorge-llc','Jorge Manuel Florez Gutierrez LLC','Jorge Florez LLC','business','Inactiva','#7A8BA3','G','','P23000008508','Inactiva.',0,6],
+   ['personal-jorge','Jorge — Personal','Jorge Personal','personal','Tarjetas · Bancos','#F59E0B','J','','','Gastos personales Jorge.',1,10],
+   ['personal-paola','Paola — Personal','Paola Personal','personal','Tarjetas · Bancos','#EC4899','P','','','Gastos personales Paola.',1,11],
+   ['personal-hogar','Gastos del Hogar','Hogar','personal','Compartidos','#8B5CF6','H','','','Gastos compartidos.',1,12],
+  ].forEach(e => s.run(...e));
+  const a = db.prepare('INSERT OR IGNORE INTO account_mappings (digits,entity_id,label,account_type,bank) VALUES (?,?,?,?,?)');
+  [['2211','real-legacy','Chase Checking 2211','checking','Chase'],['3007','real-legacy','Chase Checking 3007','checking','Chase'],
+   ['1774','real-legacy','Chase Credit Card 1774','credit','Chase'],['3005','real-legacy','Amex Credit Card 3005','credit','Amex'],
+   ['6678','jp-media','Chase Checking 6678','checking','Chase'],['7207','jp-media','Chase Checking 7207','checking','Chase'],
+   ['2797','paola-pa','Chase Checking 2797','checking','Chase'],['1887','reborn','Chase Checking 1887','checking','Chase'],
+   ['6152','reborn','Chase CD 6152','cd','Chase'],['3083','reborn','Chase CD 3083','cd','Chase'],
+   ['8896','vau-nutrition','Chase Checking 8896','checking','Chase'],['9710','vau-nutrition','Chase Credit Card 9710','credit','Chase'],
+   ['5659','personal-jorge','Chase Checking 5659','checking','Chase'],['7448','personal-jorge','Chase Credit Card 7448','credit','Chase'],
+  ].forEach(x => a.run(...x));
+}
+
+function getAllEntities() { const db=getDb(); initSeeds(); return db.prepare('SELECT * FROM entities ORDER BY sort_order,name').all(); }
+function getEntity(id) { const db=getDb(); initSeeds(); return db.prepare('SELECT * FROM entities WHERE id=?').get(id); }
+function createEntity(d) {
+  const db=getDb(); initSeeds();
+  const id=d.id||d.name.toLowerCase().replace(/[^a-z0-9]+/g,'-');
+  const mx=db.prepare('SELECT MAX(sort_order) as m FROM entities WHERE type=?').get(d.type||'business');
+  db.prepare('INSERT INTO entities (id,name,short_name,type,category,color,icon,ein,reg_number,description,active,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(id,d.name,d.shortName||d.name,d.type||'business',d.category||'',d.color||'#7A8BA3',d.icon||d.name[0].toUpperCase(),d.ein||'',d.regNumber||'',d.description||'',d.active!==false?1:0,(mx?.m||0)+1);
+  return id;
+}
+function updateEntity(id,f) {
+  const db=getDb(); const ok=['name','short_name','type','category','color','icon','ein','reg_number','description','active','sort_order'];
+  const s=[],v=[]; Object.entries(f).forEach(([k,val])=>{const dk=k.replace(/([A-Z])/g,'_$1').toLowerCase();if(ok.includes(dk)){s.push(dk+'=?');v.push(val);}});
+  if(!s.length)return; v.push(id); db.prepare('UPDATE entities SET '+s.join(',')+' WHERE id=?').run(...v);
+}
+function deleteEntity(id){const db=getDb();db.prepare('DELETE FROM account_mappings WHERE entity_id=?').run(id);db.prepare('DELETE FROM entities WHERE id=?').run(id);}
+
+function getAllMappings(){const db=getDb();initSeeds();return db.prepare('SELECT m.*,e.name as entity_name,e.short_name,e.color as entity_color,e.type as entity_type FROM account_mappings m LEFT JOIN entities e ON m.entity_id=e.id ORDER BY m.entity_id,m.digits').all();}
+function addMapping(d){const db=getDb();db.prepare('INSERT OR REPLACE INTO account_mappings (digits,entity_id,label,account_type,bank) VALUES (?,?,?,?,?)').run(d.digits,d.entityId,d.label,d.accountType||'checking',d.bank||'Chase');}
+function deleteMapping(d){getDb().prepare('DELETE FROM account_mappings WHERE digits=?').run(d);}
+
+function lookupAccount(digits){
+  if(!digits) return null; const db=getDb(); initSeeds();
+  return db.prepare('SELECT m.*,e.name as entity_name,e.short_name,e.color as entity_color,e.type as entity_type FROM account_mappings m LEFT JOIN entities e ON m.entity_id=e.id WHERE m.digits=?').get(digits.slice(-4));
+}
+
+function autoRouteFile(filename){
+  if(!filename) return null; const clean=filename.replace(/\.[^.]+$/,'');
+  const matches=clean.match(/(\d{4,})/g); if(!matches) return null;
+  let digits=null; for(const m of matches){if(m.length===8&&/^20\d{6}$/.test(m))continue;if(m.length>=4&&m.length<=6){digits=m.slice(-4);break;}}
+  if(!digits) return null; const acc=lookupAccount(digits);
+  if(!acc) return {digits,entity:null,message:'Cuenta '+digits+' no registrada'};
+  return {digits,entity:acc.entity_id,label:acc.label,type:acc.entity_type,entityName:acc.entity_name||acc.short_name};
+}
+
+// Auto-detect account from CSV content (when filename has no digits)
+function autoRouteByContent(csvContent) {
+  if (!csvContent) return null;
+  const lines = csvContent.slice(0, 2000); // Only check first 2KB
+
+  // Amex: Account # column has -03005 or similar
+  const amexMatch = lines.match(/[-,]0?(\d{4})[,\n\r]/);
+  if (amexMatch) {
+    const digits = amexMatch[1];
+    const account = lookupAccount(digits);
+    if (account) return { digits, entity: account.entity_id, label: account.label, type: account.entity_type, entityName: account.entity_name || account.short_name };
+  }
+
+  // Try to find any 4-digit account number in first data row
+  const dataLines = csvContent.split('\n').slice(1, 3);
+  for (const line of dataLines) {
+    const matches = line.match(/\b(\d{4})\b/g);
+    if (matches) {
+      for (const m of matches) {
+        const account = lookupAccount(m);
+        if (account) return { digits: m, entity: account.entity_id, label: account.label, type: account.entity_type, entityName: account.entity_name || account.short_name };
+      }
+    }
+  }
+
+  return null;
+}
+
+module.exports={initSeeds,getAllEntities,getEntity,createEntity,updateEntity,deleteEntity,getAllMappings,addMapping,deleteMapping,lookupAccount,autoRouteFile,autoRouteByContent};
